@@ -6,6 +6,20 @@
 
 ---
 
+## Environment Variables
+
+This project uses a centralized `.env` file at the root for local development.
+
+1.  **Copy the template:**
+    ```bash
+    cp .env.example .env
+    ```
+2.  **How it's loaded:**
+    - **API:** Uses `@nestjs/config` and is configured to look for `../../.env`.
+    - **Web:** Uses `dotenv` within `next.config.ts` to inject root variables during local dev.
+
+---
+
 ## Getting Started
 
 ### 1. Clone the repository and install dependencies
