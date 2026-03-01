@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { HealthModule } from './health/health.module';
+import { PrismaModule } from './prisma/prisma.module';
 import * as path from 'path';
 
 @Module({
@@ -13,6 +14,7 @@ import * as path from 'path';
       ignoreEnvFile: process.env.NODE_ENV === 'production',
     }),
     HealthModule,
+    PrismaModule,
   ],
   controllers: [AppController],
   providers: [AppService],
