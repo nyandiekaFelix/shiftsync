@@ -8,6 +8,7 @@
     "build": "turbo build",
     "test": "turbo test",
     "lint": "turbo lint",
+    "setup:env": "ln -sf ../../.env apps/api/.env && ln -sf ../../.env apps/web/.env",
     "prepare": "husky"
   },
   "keywords": [],
@@ -25,5 +26,11 @@
     "prettier": "^3.8.1",
     "turbo": "^2.8.12",
     "typescript": "^5.9.3"
+  },
+  "lint-staged": {
+    "*.{js,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   }
 }

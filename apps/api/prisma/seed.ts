@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { addDays, setHours, setMinutes, startOfWeek, addWeeks } from 'date-fns';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import * as bcrypt from 'bcrypt';
 
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
@@ -13,6 +14,8 @@ const prisma = new PrismaClient({ adapter });
 
 async function main() {
   console.log('Seeding database...');
+  const saltRounds = 10;
+  const hashedPassword = await bcrypt.hash('password123', saltRounds);
 
   try {
     // Clean the database
@@ -45,16 +48,18 @@ async function main() {
     console.log('Creating admin and managers...');
     const admin = await prisma.user.create({
       data: {
-        email: 'admin@shiftsync.com',
+        email: 'admin@example.com',
         name: 'Global Admin',
+        password: hashedPassword,
         role: Role.ADMIN,
       },
     });
 
     const manager1 = await prisma.user.create({
       data: {
-        email: 'manager.sea@shiftsync.com',
+        email: 'manager.sea@example.com',
         name: 'Seattle Manager',
+        password: hashedPassword,
         role: Role.MANAGER,
         certifiedLocations: [loc1.id, loc2.id],
       },
@@ -62,8 +67,9 @@ async function main() {
 
     const manager2 = await prisma.user.create({
       data: {
-        email: 'manager.ny@shiftsync.com',
+        email: 'manager.ny@example.com',
         name: 'NY Manager',
+        password: hashedPassword,
         role: Role.MANAGER,
         certifiedLocations: [loc3.id, loc4.id],
       },
@@ -87,6 +93,7 @@ async function main() {
         data: {
           email: s.email,
           name: s.name,
+          password: hashedPassword,
           role: Role.STAFF,
           skills: s.skills,
           certifiedLocations: s.locs,
@@ -169,10 +176,14 @@ async function main() {
 }
 
 main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(async () => {
+  .then(async () => {
     await prisma.$disconnect();
+    await pool.end();
+    process.exit(0);
+  })
+  .catch(async (e) => {
+    console.error(e);
+    await prisma.$disconnect();
+    await pool.end();
+    process.exit(1);
   });

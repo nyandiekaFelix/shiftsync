@@ -4,7 +4,7 @@ export default function Home() {
   const dummyUser: User = {
     id: "1",
     name: "Admin User",
-    email: "admin@shiftsync.com",
+    email: "admin@example.com",
     role: Role.ADMIN,
     skills: [Skill.HOST],
     certifiedLocations: []
