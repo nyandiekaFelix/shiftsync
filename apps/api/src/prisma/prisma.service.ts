@@ -3,7 +3,9 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
-function withSoftDeleteFilter<A extends { where?: Record<string, unknown> }>(args: A): A {
+function withSoftDeleteFilter<A extends { where?: Record<string, unknown> }>(
+  args: A,
+): A {
   return { ...args, where: { deletedAt: null, ...args.where } };
 }
 
@@ -19,13 +21,13 @@ function createExtendedClient() {
   return base.$extends({
     query: {
       $allModels: {
-        async findMany({ args, query }) {
+        findMany({ args, query }) {
           return query(withSoftDeleteFilter(args));
         },
-        async findFirst({ args, query }) {
+        findFirst({ args, query }) {
           return query(withSoftDeleteFilter(args));
         },
-        async count({ args, query }) {
+        count({ args, query }) {
           return query(withSoftDeleteFilter(args));
         },
       },
@@ -37,7 +39,9 @@ function createExtendedClient() {
           id: string,
         ): Promise<Prisma.Result<M, SoftDeleteArgs, 'update'>> {
           const ctx = Prisma.getExtensionContext(this) as unknown as {
-            update(args: SoftDeleteArgs): Promise<Prisma.Result<M, SoftDeleteArgs, 'update'>>;
+            update(
+              args: SoftDeleteArgs,
+            ): Promise<Prisma.Result<M, SoftDeleteArgs, 'update'>>;
           };
           return ctx.update({ where: { id }, data: { deletedAt: new Date() } });
         },
