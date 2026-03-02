@@ -20,6 +20,7 @@ interface CalendarGridProps {
   onDayClick: (date: Date) => void;
   onShiftClick: (shift: Shift) => void;
   isLoading: boolean;
+  timeZone: string;
 }
 
 export default function CalendarGrid({
@@ -28,6 +29,7 @@ export default function CalendarGrid({
   onDayClick,
   onShiftClick,
   isLoading,
+  timeZone,
 }: CalendarGridProps) {
   const days = eachDayOfInterval({
     start: startOfWeek(startOfMonth(currentDate)),
@@ -99,6 +101,7 @@ export default function CalendarGrid({
                     key={shift.id}
                     shift={shift}
                     onClick={onShiftClick}
+                    timeZone={timeZone}
                   />
                 ))}
               </div>

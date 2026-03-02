@@ -1,5 +1,21 @@
-import { Shift, Location, AuthUser } from "@shiftsync/shared-types";
+import {
+  Shift,
+  Location,
+  AuthUser,
+  AssignStaffResponse,
+  ConstraintViolationPayload,
+} from "@shiftsync/shared-types";
 import { apiClient } from "./api-client";
+
+export class ConstraintViolationError extends Error {
+  readonly payload: ConstraintViolationPayload;
+
+  constructor(payload: ConstraintViolationPayload) {
+    super(payload.message);
+    this.name = "ConstraintViolationError";
+    this.payload = payload;
+  }
+}
 
 export const shiftService = {
   async create(shift: Partial<Shift>): Promise<Shift> {
@@ -69,7 +85,10 @@ export const shiftService = {
     }
   },
 
-  async assignStaff(shiftId: string, userId: string): Promise<Shift> {
+  async assignStaff(
+    shiftId: string,
+    userId: string,
+  ): Promise<AssignStaffResponse> {
     const response = await apiClient.fetch(`/shifts/${shiftId}/assignments`, {
       method: "POST",
       body: JSON.stringify({ userId }),
@@ -79,6 +98,16 @@ export const shiftService = {
       const errorData = await response
         .json()
         .catch(() => ({ message: "Failed to assign staff" }));
+      if (
+        errorData &&
+        typeof errorData === "object" &&
+        "details" in errorData &&
+        "rule" in errorData
+      ) {
+        throw new ConstraintViolationError(
+          errorData as ConstraintViolationPayload,
+        );
+      }
       throw new Error(errorData.message || "Failed to assign staff");
     }
 

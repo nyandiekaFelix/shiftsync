@@ -9,7 +9,7 @@ import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, Skill as PrismaSkill } from '@prisma/client';
 import { AuthUser, Role, Skill } from '@shiftsync/shared-types';
 
 interface AuthenticatedRequest extends Request {
@@ -62,7 +62,7 @@ export class UsersController {
 
     if (skill && skill !== 'null' && skill !== 'undefined') {
       where.skills = {
-        has: skill,
+        has: skill as PrismaSkill,
       };
     }
 

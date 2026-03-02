@@ -2,7 +2,14 @@
   "name": "@shiftsync/shared-types",
   "version": "1.0.0",
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsc -w"

@@ -105,3 +105,52 @@ export interface LoginResponse {
   access_token: string;
   user: AuthUser;
 }
+
+export enum ConstraintSeverity {
+  BLOCK = "BLOCK",
+  WARN = "WARN",
+}
+
+export enum ConstraintRuleCode {
+  SKILL_MISMATCH = "SKILL_MISMATCH",
+  CERTIFICATION_MISMATCH = "CERTIFICATION_MISMATCH",
+  AVAILABILITY_VIOLATION = "AVAILABILITY_VIOLATION",
+  DOUBLE_BOOKING = "DOUBLE_BOOKING",
+  MIN_REST = "MIN_REST",
+  DAILY_WARNING_8H = "DAILY_WARNING_8H",
+  DAILY_LIMIT_12H = "DAILY_LIMIT_12H",
+  WEEKLY_WARNING_35H = "WEEKLY_WARNING_35H",
+  WEEKLY_OVERTIME_40H = "WEEKLY_OVERTIME_40H",
+  CONSECUTIVE_DAY_6 = "CONSECUTIVE_DAY_6",
+  CONSECUTIVE_DAY_7_OVERRIDE_REQUIRED = "CONSECUTIVE_DAY_7_OVERRIDE_REQUIRED",
+}
+
+export interface ConstraintIssue {
+  rule: ConstraintRuleCode;
+  severity: ConstraintSeverity;
+  message: string;
+  conflictingShiftId?: string;
+  meta?: Record<string, string | number | boolean | null>;
+}
+
+export interface AssignmentSuggestion {
+  userId: string;
+  name: string;
+}
+
+export interface AssignmentConstraintFeedback {
+  warnings: ConstraintIssue[];
+}
+
+export interface AssignStaffResponse extends AssignmentConstraintFeedback {
+  assignment: Assignment;
+}
+
+export interface ConstraintViolationPayload {
+  statusCode: number;
+  error: string;
+  message: string;
+  rule: ConstraintRuleCode;
+  details: ConstraintIssue[];
+  suggestions: AssignmentSuggestion[];
+}

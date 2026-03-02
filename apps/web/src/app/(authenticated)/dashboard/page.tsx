@@ -2,8 +2,16 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/auth-context";
-import { shiftService } from "@/services/shift-service";
-import { Shift, ShiftStatus, Location } from "@shiftsync/shared-types";
+import {
+  shiftService,
+  ConstraintViolationError,
+} from "@/services/shift-service";
+import {
+  Shift,
+  ShiftStatus,
+  Location,
+  ConstraintIssue,
+} from "@shiftsync/shared-types";
 import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
@@ -22,6 +30,12 @@ export default function ManagerDashboard() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalShift, setModalShift] = useState<Shift | undefined>(undefined);
+  const [assignmentWarnings, setAssignmentWarnings] = useState<
+    Record<string, ConstraintIssue[]>
+  >({});
+  const [assignmentBlocks, setAssignmentBlocks] = useState<
+    Record<string, ConstraintIssue[]>
+  >({});
 
   const fetchShifts = useCallback(async () => {
     if (!selectedLocation) return;
@@ -62,14 +76,27 @@ export default function ManagerDashboard() {
     fetchShifts();
   }, [fetchShifts]);
 
+  const selectedLocationData = allLocations.find(
+    (location) => location.id === selectedLocation,
+  );
+  const selectedLocationTimezone = selectedLocationData?.timezone ?? "UTC";
+
   const handleCreateOrUpdateShift = async (shiftData: Partial<Shift>) => {
+    const editablePayload: Partial<Shift> = {
+      startTime: shiftData.startTime,
+      endTime: shiftData.endTime,
+      requiredSkill: shiftData.requiredSkill,
+      requiredHeadcount: shiftData.requiredHeadcount,
+      status: shiftData.status,
+    };
+
     try {
       if (shiftData.id) {
-        await shiftService.update(shiftData.id, shiftData);
+        await shiftService.update(shiftData.id, editablePayload);
         toast.success("Shift updated successfully");
       } else {
         await shiftService.create({
-          ...shiftData,
+          ...editablePayload,
           locationId: selectedLocation,
           status: ShiftStatus.DRAFT,
         });
@@ -87,13 +114,42 @@ export default function ManagerDashboard() {
   const handleAssignStaff = async (userId: string) => {
     if (!modalShift?.id) return;
     try {
-      await shiftService.assignStaff(modalShift.id, userId);
+      const result = await shiftService.assignStaff(modalShift.id, userId);
+      setAssignmentBlocks((prev) => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+      setAssignmentWarnings((prev) => ({
+        ...prev,
+        [userId]: result.warnings,
+      }));
       toast.success("Staff assigned successfully");
+      if (result.warnings.length > 0) {
+        toast.warning(result.warnings.map((w) => w.message).join(" "));
+      }
       fetchShifts();
     } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to assign staff";
-      toast.error(errorMessage);
+      if (error instanceof ConstraintViolationError) {
+        setAssignmentBlocks((prev) => ({
+          ...prev,
+          [userId]: error.payload.details,
+        }));
+        const detailLines = error.payload.details
+          .map((d) => d.message)
+          .join(" ");
+        const suggestionText =
+          error.payload.suggestions.length > 0
+            ? ` Suggestions: ${error.payload.suggestions
+                .map((s) => s.name)
+                .join(", ")}`
+            : "";
+        toast.error(`${detailLines}${suggestionText}`);
+      } else {
+        const errorMessage =
+          error instanceof Error ? error.message : "Failed to assign staff";
+        toast.error(errorMessage);
+      }
       throw error;
     }
   };
@@ -123,6 +179,7 @@ export default function ManagerDashboard() {
         selectedLocation={selectedLocation}
         onLocationChange={setSelectedLocation}
         locations={allLocations}
+        selectedLocationTimezone={selectedLocationTimezone}
       />
 
       <CalendarGrid
@@ -131,6 +188,7 @@ export default function ManagerDashboard() {
         isLoading={isLoading}
         onDayClick={handleDayClick}
         onShiftClick={openModal}
+        timeZone={selectedLocationTimezone}
       />
 
       <ShiftDetailModal
@@ -139,6 +197,9 @@ export default function ManagerDashboard() {
         onSubmit={handleCreateOrUpdateShift}
         onAssign={handleAssignStaff}
         initialData={modalShift}
+        assignmentWarnings={assignmentWarnings}
+        assignmentBlocks={assignmentBlocks}
+        locationTimezone={selectedLocationTimezone}
       />
     </div>
   );

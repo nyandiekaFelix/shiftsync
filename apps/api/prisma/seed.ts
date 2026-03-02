@@ -1,7 +1,6 @@
 import { PrismaClient, Role, Skill, AvailabilityType } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
-import { addDays, setHours, setMinutes, startOfWeek, addWeeks } from 'date-fns';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as bcrypt from 'bcrypt';
@@ -11,6 +10,109 @@ dotenv.config({ path: path.join(__dirname, '../../../.env') });
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
+
+type LocalDateParts = {
+  year: number;
+  month: number;
+  day: number;
+};
+
+const weekdayToIsoMap: Record<string, number> = {
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+  Sun: 7,
+};
+
+function getFormatter(timezone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    weekday: 'short',
+    hour12: false,
+  });
+}
+
+function getPart(parts: Intl.DateTimeFormatPart[], type: string): string {
+  return parts.find((part) => part.type === type)?.value ?? '';
+}
+
+function getOffsetMinutes(date: Date, timezone: string): number {
+  const parts = getFormatter(timezone).formatToParts(date);
+  const localAsUtc = Date.UTC(
+    Number(getPart(parts, 'year')),
+    Number(getPart(parts, 'month')) - 1,
+    Number(getPart(parts, 'day')),
+    Number(getPart(parts, 'hour')),
+    Number(getPart(parts, 'minute')),
+    Number(getPart(parts, 'second')),
+  );
+  return (localAsUtc - date.getTime()) / (1000 * 60);
+}
+
+function zonedDateTimeToUtc(
+  timezone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+): Date {
+  let utcMillis = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  for (let index = 0; index < 3; index += 1) {
+    const offsetMinutes = getOffsetMinutes(new Date(utcMillis), timezone);
+    utcMillis =
+      Date.UTC(year, month - 1, day, hour, minute, 0, 0) -
+      offsetMinutes * 60 * 1000;
+  }
+  return new Date(utcMillis);
+}
+
+function getLocalDateParts(date: Date, timezone: string): LocalDateParts {
+  const parts = getFormatter(timezone).formatToParts(date);
+  return {
+    year: Number(getPart(parts, 'year')),
+    month: Number(getPart(parts, 'month')),
+    day: Number(getPart(parts, 'day')),
+  };
+}
+
+function getIsoWeekday(date: Date, timezone: string): number {
+  const parts = getFormatter(timezone).formatToParts(date);
+  const weekday = getPart(parts, 'weekday');
+  return weekdayToIsoMap[weekday] ?? 1;
+}
+
+function addDaysToLocalDate(
+  parts: LocalDateParts,
+  days: number,
+): LocalDateParts {
+  const proxy = new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+  proxy.setUTCDate(proxy.getUTCDate() + days);
+  return {
+    year: proxy.getUTCFullYear(),
+    month: proxy.getUTCMonth() + 1,
+    day: proxy.getUTCDate(),
+  };
+}
+
+function getNextMondayInTimezone(timezone: string): LocalDateParts {
+  const now = new Date();
+  const currentWeekday = getIsoWeekday(now, timezone);
+  const daysUntilNextMonday = currentWeekday === 1 ? 7 : 8 - currentWeekday;
+  return addDaysToLocalDate(
+    getLocalDateParts(now, timezone),
+    daysUntilNextMonday,
+  );
+}
 
 async function main() {
   console.log('Seeding database...');
@@ -248,17 +350,44 @@ async function main() {
 
     // 4. Create Shifts for the next week
     console.log('Creating shifts...');
-    const today = startOfWeek(new Date());
-    const nextWeek = addWeeks(today, 1);
+    const nextWeekInSeattle = getNextMondayInTimezone(loc1.timezone);
 
     const shifts: { id: string; requiredSkill: Skill }[] = [];
     // Create some shifts for Seattle North (loc1)
     for (let i = 0; i < 5; i++) {
-      const day = addDays(nextWeek, i);
-      const lunchStart = setMinutes(setHours(day, 11), 0);
-      const lunchEnd = setMinutes(setHours(day, 15), 0);
-      const dinnerStart = setMinutes(setHours(day, 17), 0);
-      const dinnerEnd = setMinutes(setHours(day, 22), 0);
+      const localDay = addDaysToLocalDate(nextWeekInSeattle, i);
+      const lunchStart = zonedDateTimeToUtc(
+        loc1.timezone,
+        localDay.year,
+        localDay.month,
+        localDay.day,
+        11,
+        0,
+      );
+      const lunchEnd = zonedDateTimeToUtc(
+        loc1.timezone,
+        localDay.year,
+        localDay.month,
+        localDay.day,
+        15,
+        0,
+      );
+      const dinnerStart = zonedDateTimeToUtc(
+        loc1.timezone,
+        localDay.year,
+        localDay.month,
+        localDay.day,
+        17,
+        0,
+      );
+      const dinnerEnd = zonedDateTimeToUtc(
+        loc1.timezone,
+        localDay.year,
+        localDay.month,
+        localDay.day,
+        22,
+        0,
+      );
 
       const s1 = await prisma.shift.create({
         data: {
@@ -308,6 +437,163 @@ async function main() {
         });
       }
     }
+
+    // --- CONSTRAINT TESTING DATA ---
+    console.log('Adding specific data for constraint testing...');
+
+    // 1. Midnight Availability Case: Zane Night
+    // Zane is only available from 10 PM to 6 AM the next day.
+    const zane = await prisma.user.create({
+      data: {
+        email: 'zane@example.com',
+        name: 'Zane Night',
+        password: hashedPassword,
+        role: Role.STAFF,
+        skills: [Skill.LINE_COOK],
+        certifiedLocations: [loc1.id],
+      },
+    });
+
+    // Create a split availability that "simulates" a midnight cross
+    // Monday 10 PM - Midnight
+    await prisma.availability.create({
+      data: {
+        userId: zane.id,
+        dayOfWeek: 1,
+        startTime: '22:00',
+        endTime: '23:59',
+        type: AvailabilityType.RECURRING,
+      },
+    });
+    // Tuesday Midnight - 6 AM
+    await prisma.availability.create({
+      data: {
+        userId: zane.id,
+        dayOfWeek: 2,
+        startTime: '00:00',
+        endTime: '06:00',
+        type: AvailabilityType.RECURRING,
+      },
+    });
+
+    // 2. Weekly Limit Case: Yolanda Weekly
+    // Yolanda is already at 38 hours for next week.
+    const yolanda = await prisma.user.create({
+      data: {
+        email: 'yolanda@example.com',
+        name: 'Yolanda Weekly',
+        password: hashedPassword,
+        role: Role.STAFF,
+        skills: [Skill.SERVER],
+        certifiedLocations: [loc2.id],
+      },
+    });
+
+    // Add recurring availability for seeded weekly test.
+    for (let day = 1; day <= 5; day++) {
+      await prisma.availability.create({
+        data: {
+          userId: yolanda.id,
+          dayOfWeek: day,
+          startTime: '08:00',
+          endTime: '18:00',
+          type: AvailabilityType.RECURRING,
+        },
+      });
+    }
+
+    // Add 4 shifts of 9.5 hours each = 38 hours
+    const nextWeekInSeattleDowntown = getNextMondayInTimezone(loc2.timezone);
+    for (let i = 0; i < 4; i++) {
+      const localDay = addDaysToLocalDate(nextWeekInSeattleDowntown, i);
+      const start = zonedDateTimeToUtc(
+        loc2.timezone,
+        localDay.year,
+        localDay.month,
+        localDay.day,
+        8,
+        0,
+      );
+      const end = zonedDateTimeToUtc(
+        loc2.timezone,
+        localDay.year,
+        localDay.month,
+        localDay.day,
+        17,
+        30,
+      ); // 9.5 hours
+
+      const s = await prisma.shift.create({
+        data: {
+          locationId: loc2.id,
+          startTime: start,
+          endTime: end,
+          requiredSkill: Skill.SERVER,
+        },
+      });
+      await prisma.assignment.create({
+        data: { shiftId: s.id, userId: yolanda.id },
+      });
+    }
+
+    // 3. Consecutive Days Case: Xavier Streak
+    // Xavier has worked 6 days straight leading up to the Friday of next week.
+    const xavier = await prisma.user.create({
+      data: {
+        email: 'xavier@example.com',
+        name: 'Xavier Streak',
+        password: hashedPassword,
+        role: Role.STAFF,
+        skills: [Skill.HOST],
+        certifiedLocations: [loc1.id],
+      },
+    });
+
+    // Add recurring availability for seeded consecutive-day test.
+    for (let day = 1; day <= 7; day++) {
+      await prisma.availability.create({
+        data: {
+          userId: xavier.id,
+          dayOfWeek: day,
+          startTime: '08:00',
+          endTime: '18:00',
+          type: AvailabilityType.RECURRING,
+        },
+      });
+    }
+
+    // Assign to 6 days straight (Saturday to Thursday local Seattle time).
+    const lastSaturdayInSeattle = addDaysToLocalDate(nextWeekInSeattle, -2);
+    for (let i = 0; i < 6; i++) {
+      const localDay = addDaysToLocalDate(lastSaturdayInSeattle, i);
+      const s = await prisma.shift.create({
+        data: {
+          locationId: loc1.id,
+          startTime: zonedDateTimeToUtc(
+            loc1.timezone,
+            localDay.year,
+            localDay.month,
+            localDay.day,
+            9,
+            0,
+          ),
+          endTime: zonedDateTimeToUtc(
+            loc1.timezone,
+            localDay.year,
+            localDay.month,
+            localDay.day,
+            12,
+            0,
+          ),
+          requiredSkill: Skill.HOST,
+        },
+      });
+      await prisma.assignment.create({
+        data: { shiftId: s.id, userId: xavier.id },
+      });
+    }
+
+    console.log('Phase 5 testing data created.');
     console.log('Initial assignments created.');
     console.log('Seeding completed successfully.');
   } catch (error: unknown) {
