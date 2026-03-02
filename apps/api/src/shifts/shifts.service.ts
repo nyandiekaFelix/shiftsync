@@ -4,21 +4,35 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma, SwapRequestType, SwapStatus } from '@prisma/client';
+import {
+  AuditAction,
+  AuditEntityType,
+  NotificationType,
+  Prisma,
+  SwapRequestType,
+  SwapStatus,
+} from '@prisma/client';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { Shift, ShiftStatus, Role, AuthUser } from '@shiftsync/shared-types';
 import { parseShiftInputToUtc } from '../common/utils/timezone';
 import { RealtimeService } from '../realtime/realtime.service';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ShiftsService {
   constructor(
     private prisma: PrismaService,
     private realtimeService: RealtimeService,
+    private auditService: AuditService,
+    private notificationsService: NotificationsService,
   ) {}
 
-  async create(createShiftDto: CreateShiftDto): Promise<Shift> {
+  async create(
+    createShiftDto: CreateShiftDto,
+    actorId?: string,
+  ): Promise<Shift> {
     const { startTime, endTime, locationId, ...rest } = createShiftDto;
     const location = await this.prisma.db.location.findUnique({
       where: { id: locationId },
@@ -38,14 +52,26 @@ export class ShiftsService {
       throw new BadRequestException('Start time must be before end time');
     }
 
-    const shift = await this.prisma.db.shift.create({
-      data: {
-        locationId,
-        ...rest,
-        startTime: start,
-        endTime: end,
-        status: ShiftStatus.DRAFT,
-      },
+    const shift = await this.prisma.db.$transaction(async (tx) => {
+      const created = await tx.shift.create({
+        data: {
+          locationId,
+          ...rest,
+          startTime: start,
+          endTime: end,
+          status: ShiftStatus.DRAFT,
+        },
+      });
+
+      await this.auditService.createLog(tx, {
+        entityType: AuditEntityType.SHIFT,
+        entityId: created.id,
+        action: AuditAction.CREATE,
+        actorId,
+        after: created,
+      });
+
+      return created;
     });
 
     this.realtimeService.emitShiftUpdated(shift.locationId, shift.id);
@@ -160,7 +186,11 @@ export class ShiftsService {
     return shift as unknown as Shift;
   }
 
-  async update(id: string, updateShiftDto: UpdateShiftDto): Promise<Shift> {
+  async update(
+    id: string,
+    updateShiftDto: UpdateShiftDto,
+    actorId?: string,
+  ): Promise<Shift> {
     const { startTime, endTime, ...rest } = updateShiftDto;
     const existingShift = await this.prisma.db.shift.findUnique({
       where: { id },
@@ -257,6 +287,40 @@ export class ShiftsService {
           });
         }
 
+        const activeAssignments = await tx.assignment.findMany({
+          where: {
+            shiftId: id,
+            deletedAt: null,
+          },
+          select: {
+            userId: true,
+          },
+        });
+
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.SHIFT,
+          entityId: id,
+          action: AuditAction.UPDATE,
+          actorId,
+          before: existingShift,
+          after: updatedShift,
+        });
+
+        await this.notificationsService.createMany(
+          tx,
+          activeAssignments.map((assignment) => ({
+            userId: assignment.userId,
+            type: NotificationType.SHIFT_UPDATED,
+            title: 'Shift updated',
+            message:
+              'A shift you are assigned to was updated. Please review the latest schedule details.',
+            metadata: {
+              shiftId: id,
+              locationId: updatedShift.locationId,
+            },
+          })),
+        );
+
         return {
           shift: updatedShift,
           cancelledSwapRequests: activeSwapRequests,
@@ -268,13 +332,32 @@ export class ShiftsService {
     cancelledSwapRequests.forEach((request) => {
       this.realtimeService.emitSwapRequestUpdated(shift.locationId, request.id);
     });
+
     return shift as unknown as Shift;
   }
 
-  async remove(id: string): Promise<void> {
-    await this.prisma.db.shift.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+  async remove(id: string, actorId?: string): Promise<void> {
+    await this.prisma.db.$transaction(async (tx) => {
+      const existingShift = await tx.shift.findUnique({
+        where: { id },
+      });
+      if (!existingShift || existingShift.deletedAt) {
+        throw new NotFoundException(`Shift with ID ${id} not found`);
+      }
+
+      const deletedShift = await tx.shift.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
+
+      await this.auditService.createLog(tx, {
+        entityType: AuditEntityType.SHIFT,
+        entityId: id,
+        action: AuditAction.SOFT_DELETE,
+        actorId,
+        before: existingShift,
+        after: deletedShift,
+      });
     });
   }
 
@@ -282,6 +365,7 @@ export class ShiftsService {
     locationId: string,
     startDate: string,
     endDate: string,
+    actorId?: string,
   ): Promise<number> {
     const location = await this.prisma.db.location.findUnique({
       where: { id: locationId },
@@ -319,21 +403,73 @@ export class ShiftsService {
       },
     });
 
-    const result = await this.prisma.db.shift.updateMany({
-      where: {
-        locationId,
-        status: ShiftStatus.DRAFT,
-        startTime: {
-          gte: rangeStart,
+    const result = await this.prisma.db.$transaction(async (tx) => {
+      const updated = await tx.shift.updateMany({
+        where: {
+          locationId,
+          status: ShiftStatus.DRAFT,
+          startTime: {
+            gte: rangeStart,
+          },
+          endTime: {
+            lte: rangeEnd,
+          },
+          deletedAt: null,
         },
-        endTime: {
-          lte: rangeEnd,
+        data: {
+          status: ShiftStatus.PUBLISHED,
         },
-        deletedAt: null,
-      },
-      data: {
-        status: ShiftStatus.PUBLISHED,
-      },
+      });
+
+      if (draftShiftIds.length > 0) {
+        await tx.auditLog.createMany({
+          data: draftShiftIds.map((shift) => ({
+            entityType: AuditEntityType.SHIFT,
+            entityId: shift.id,
+            action: AuditAction.STATUS_CHANGE,
+            actorId,
+            diff: {
+              status: {
+                before: ShiftStatus.DRAFT,
+                after: ShiftStatus.PUBLISHED,
+              },
+            },
+          })),
+        });
+      }
+
+      const assignments = await tx.assignment.findMany({
+        where: {
+          shiftId: {
+            in: draftShiftIds.map((shift) => shift.id),
+          },
+          deletedAt: null,
+        },
+        include: {
+          shift: {
+            select: {
+              id: true,
+            },
+          },
+        },
+      });
+
+      await this.notificationsService.createMany(
+        tx,
+        assignments.map((assignment) => ({
+          userId: assignment.userId,
+          type: NotificationType.SCHEDULE_PUBLISHED,
+          title: 'Schedule published',
+          message:
+            'A schedule with your assignments has been published by management.',
+          metadata: {
+            shiftId: assignment.shift.id,
+            locationId,
+          },
+        })),
+      );
+
+      return updated;
     });
 
     draftShiftIds.forEach((shift) => {

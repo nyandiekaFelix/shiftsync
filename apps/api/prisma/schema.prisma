@@ -11,6 +11,7 @@ model User {
   email              String         @unique
   name               String
   role               Role           @default(STAFF)
+  desiredWeeklyHours Int            @default(40)
   skills             Skill[]
   certifiedLocations String[]
   deletedAt          DateTime?
@@ -19,6 +20,8 @@ model User {
   availabilities     Availability[]
   receivedSwaps      SwapRequest[]  @relation("Receiver")
   initiatedSwaps     SwapRequest[]  @relation("Requester")
+  notifications      Notification[]
+  auditLogs          AuditLog[]     @relation("AuditActor")
 
   @@map("users")
 }
@@ -100,6 +103,40 @@ model SwapRequest {
   @@map("swap_requests")
 }
 
+model AuditLog {
+  id         String          @id @default(uuid())
+  entityType AuditEntityType
+  entityId   String
+  action     AuditAction
+  actorId    String?
+  targetUserId String?
+  before     Json?
+  after      Json?
+  diff       Json?
+  createdAt  DateTime        @default(now())
+  actor      User?           @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  metadata  Json?
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
 enum Role {
   ADMIN
   MANAGER
@@ -134,4 +171,26 @@ enum SwapRequestType {
 enum ShiftStatus {
   DRAFT
   PUBLISHED
+}
+
+enum AuditEntityType {
+  SHIFT
+  ASSIGNMENT
+  SWAP_REQUEST
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  SOFT_DELETE
+  STATUS_CHANGE
+}
+
+enum NotificationType {
+  SHIFT_ASSIGNED
+  SHIFT_UNASSIGNED
+  SHIFT_UPDATED
+  SCHEDULE_PUBLISHED
+  SWAP_REQUEST_UPDATED
+  OVERTIME_WARNING
 }

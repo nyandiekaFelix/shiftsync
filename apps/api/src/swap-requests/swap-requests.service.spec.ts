@@ -7,6 +7,8 @@ import { SWAP_REQUESTS_QUEUE } from './swap-requests.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConstraintEngineService } from '../shifts/constraints/constraint-engine.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('SwapRequestsService', () => {
   let service: SwapRequestsService;
@@ -19,6 +21,12 @@ describe('SwapRequestsService', () => {
         findMany: jest.fn(),
         updateMany: jest.fn(),
         findUnique: jest.fn(),
+      },
+      auditLog: {
+        create: jest.fn(),
+      },
+      notification: {
+        create: jest.fn(),
       },
     },
   };
@@ -35,6 +43,15 @@ describe('SwapRequestsService', () => {
 
   const mockQueue = {
     add: jest.fn(),
+  };
+
+  const mockAuditService = {
+    createLog: jest.fn(),
+  };
+
+  const mockNotificationsService = {
+    create: jest.fn(),
+    createMany: jest.fn(),
   };
 
   const mockTransaction = <TTx>(tx: TTx): void => {
@@ -55,6 +72,8 @@ describe('SwapRequestsService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: ConstraintEngineService, useValue: mockConstraintEngine },
         { provide: RealtimeService, useValue: mockRealtimeService },
+        { provide: AuditService, useValue: mockAuditService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: getQueueToken(SWAP_REQUESTS_QUEUE), useValue: mockQueue },
       ],
     }).compile();

@@ -10,6 +10,9 @@ import { ConstraintEngineService } from './constraints/constraint-engine.service
 import { ConstraintViolationException } from './constraints/constraint-violation.exception';
 import { RedisLockService } from '../common/redis/redis-lock.service';
 import { RealtimeService } from '../realtime/realtime.service';
+import { AuditService } from '../audit/audit.service';
+import { AuditAction, AuditEntityType, NotificationType } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AssignmentsService {
@@ -18,12 +21,15 @@ export class AssignmentsService {
     private constraintEngine: ConstraintEngineService,
     private redisLockService: RedisLockService,
     private realtimeService: RealtimeService,
+    private auditService: AuditService,
+    private notificationsService: NotificationsService,
   ) {}
 
   async assignStaff(
     shiftId: string,
     userId: string,
     managerOverrideReason?: string,
+    actorId?: string,
   ): Promise<AssignStaffResponse> {
     const lock = await this.redisLockService.acquire(
       `staff:${userId}`,
@@ -101,6 +107,42 @@ export class AssignmentsService {
           },
         });
 
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.ASSIGNMENT,
+          entityId: assignment.id,
+          action: AuditAction.CREATE,
+          actorId,
+          targetUserId: userId,
+          after: assignment,
+        });
+
+        await this.notificationsService.create(tx, {
+          userId,
+          type: NotificationType.SHIFT_ASSIGNED,
+          title: 'New shift assigned',
+          message:
+            'You were assigned to a shift. Open your schedule to review details.',
+          metadata: {
+            shiftId,
+            assignmentId: assignment.id,
+          },
+        });
+
+        if (actorId && evaluation.warnings.length > 0) {
+          await this.notificationsService.create(tx, {
+            userId: actorId,
+            type: NotificationType.OVERTIME_WARNING,
+            title: 'Overtime warning',
+            message: evaluation.warnings
+              .map((warning) => warning.message)
+              .join(' '),
+            metadata: {
+              shiftId,
+              assignedUserId: userId,
+            },
+          });
+        }
+
         return {
           assignment: assignment as unknown as Assignment,
           warnings: evaluation.warnings,
@@ -124,7 +166,11 @@ export class AssignmentsService {
     }
   }
 
-  async unassignStaff(shiftId: string, assignmentId: string): Promise<void> {
+  async unassignStaff(
+    shiftId: string,
+    assignmentId: string,
+    actorId?: string,
+  ): Promise<void> {
     const existingAssignment = await this.prisma.db.assignment.findFirst({
       where: { id: assignmentId, shiftId, deletedAt: null },
       include: {
@@ -143,9 +189,33 @@ export class AssignmentsService {
     }
 
     try {
-      await this.prisma.db.assignment.update({
-        where: { id: assignmentId, shiftId },
-        data: { deletedAt: new Date() },
+      await this.prisma.db.$transaction(async (tx) => {
+        const updated = await tx.assignment.update({
+          where: { id: assignmentId, shiftId },
+          data: { deletedAt: new Date() },
+        });
+
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.ASSIGNMENT,
+          entityId: assignmentId,
+          action: AuditAction.SOFT_DELETE,
+          actorId,
+          targetUserId: existingAssignment.userId,
+          before: existingAssignment,
+          after: updated,
+        });
+
+        await this.notificationsService.create(tx, {
+          userId: existingAssignment.userId,
+          type: NotificationType.SHIFT_UNASSIGNED,
+          title: 'Shift assignment removed',
+          message:
+            'You were unassigned from a shift. Check your schedule for the latest updates.',
+          metadata: {
+            shiftId,
+            assignmentId,
+          },
+        });
       });
     } catch {
       throw new NotFoundException(

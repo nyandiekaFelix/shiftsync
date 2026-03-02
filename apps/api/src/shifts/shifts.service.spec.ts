@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { Role, AuthUser } from '@shiftsync/shared-types';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('ShiftsService', () => {
   let service: ShiftsService;
@@ -25,12 +27,23 @@ describe('ShiftsService', () => {
     emitSchedulePublished: jest.fn(),
   };
 
+  const mockAuditService = {
+    createLog: jest.fn(),
+  };
+
+  const mockNotificationsService = {
+    create: jest.fn(),
+    createMany: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ShiftsService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: RealtimeService, useValue: mockRealtimeService },
+        { provide: AuditService, useValue: mockAuditService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
       ],
     }).compile();
 

@@ -45,6 +45,7 @@ export class SwapRequestsController {
       req.user.id,
       body.shiftId,
       body.receiverId,
+      req.user.id,
     );
   }
 
@@ -55,24 +56,33 @@ export class SwapRequestsController {
     @Body() body: InitiateDropDto,
     @Request() req: AuthenticatedRequest,
   ) {
-    return this.swapRequestsService.requestDrop(req.user.id, body.shiftId);
+    return this.swapRequestsService.requestDrop(
+      req.user.id,
+      body.shiftId,
+      req.user.id,
+    );
   }
 
   @Post(':id/accept')
   @Roles(Role.STAFF)
   @ApiOperation({ summary: 'Accept a swap or claim a drop request' })
   accept(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
-    return this.swapRequestsService.acceptRequest(id, req.user.id);
+    return this.swapRequestsService.acceptRequest(id, req.user.id, req.user.id);
   }
 
   @Post(':id/approve')
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: 'Approve or deny a peer-accepted request' })
-  approve(@Param('id') id: string, @Body() body: ApproveSwapDto) {
+  approve(
+    @Param('id') id: string,
+    @Body() body: ApproveSwapDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
     return this.swapRequestsService.approveRequest(
       id,
       body.approve,
       body.reason,
+      req.user.id,
     );
   }
 
@@ -80,7 +90,11 @@ export class SwapRequestsController {
   @Roles(Role.STAFF)
   @ApiOperation({ summary: 'Cancel an active request by its initiator' })
   cancel(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
-    return this.swapRequestsService.cancelByInitiator(id, req.user.id);
+    return this.swapRequestsService.cancelByInitiator(
+      id,
+      req.user.id,
+      req.user.id,
+    );
   }
 
   @Get()

@@ -45,8 +45,11 @@ export class ShiftsController {
   @UseGuards(LocationAccessGuard)
   @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Create a new shift' })
-  create(@Body() createShiftDto: CreateShiftDto) {
-    return this.shiftsService.create(createShiftDto);
+  create(
+    @Body() createShiftDto: CreateShiftDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.shiftsService.create(createShiftDto, req.user.id);
   }
 
   @Get()
@@ -78,26 +81,35 @@ export class ShiftsController {
   @Roles(Role.ADMIN, Role.MANAGER)
   @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Update a shift' })
-  update(@Param('id') id: string, @Body() updateShiftDto: UpdateShiftDto) {
-    return this.shiftsService.update(id, updateShiftDto);
+  update(
+    @Param('id') id: string,
+    @Body() updateShiftDto: UpdateShiftDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.shiftsService.update(id, updateShiftDto, req.user.id);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: 'Soft delete a shift' })
-  remove(@Param('id') id: string) {
-    return this.shiftsService.remove(id);
+  remove(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
+    return this.shiftsService.remove(id, req.user.id);
   }
 
   @Post(':id/assignments')
   @Roles(Role.ADMIN, Role.MANAGER)
   @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Assign staff to a shift' })
-  assignStaff(@Param('id') id: string, @Body() assignStaffDto: AssignStaffDto) {
+  assignStaff(
+    @Param('id') id: string,
+    @Body() assignStaffDto: AssignStaffDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
     return this.assignmentsService.assignStaff(
       id,
       assignStaffDto.userId,
       assignStaffDto.managerOverride?.reason,
+      req.user.id,
     );
   }
 
@@ -107,8 +119,9 @@ export class ShiftsController {
   unassignStaff(
     @Param('id') id: string,
     @Param('assignmentId') assignmentId: string,
+    @Request() req: AuthenticatedRequest,
   ) {
-    return this.assignmentsService.unassignStaff(id, assignmentId);
+    return this.assignmentsService.unassignStaff(id, assignmentId, req.user.id);
   }
 
   @Post('publish')
@@ -121,7 +134,8 @@ export class ShiftsController {
     @Query('locationId') locationId: string,
     @Query('start') start: string,
     @Query('end') end: string,
+    @Request() req: AuthenticatedRequest,
   ) {
-    return this.shiftsService.publishBulk(locationId, start, end);
+    return this.shiftsService.publishBulk(locationId, start, end, req.user.id);
   }
 }

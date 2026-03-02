@@ -15,6 +15,9 @@ import {
   ShiftSyncEvent,
   SwapRequest,
   AuthUser,
+  FairnessReport,
+  AuditLogEntry,
+  Role,
 } from "@shiftsync/shared-types";
 import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth } from "date-fns";
@@ -24,6 +27,7 @@ import DashboardControls from "@/components/dashboard/dashboard-controls";
 import CalendarGrid from "@/components/dashboard/calendar-grid";
 import ShiftDetailModal from "@/components/shifts/shift-detail-modal";
 import { getRealtimeSocket } from "@/services/realtime-client";
+import { analyticsService } from "@/services/analytics-service";
 
 export default function ManagerDashboard() {
   const { user } = useAuth();
@@ -44,6 +48,12 @@ export default function ManagerDashboard() {
     Record<string, ConstraintIssue[]>
   >({});
   const [approvalQueue, setApprovalQueue] = useState<SwapRequestItem[]>([]);
+  const [fairnessReport, setFairnessReport] = useState<FairnessReport | null>(
+    null,
+  );
+  const [isFairnessLoading, setIsFairnessLoading] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
 
   type SwapRequestItem = SwapRequest & {
     requester?: AuthUser;
@@ -95,6 +105,47 @@ export default function ManagerDashboard() {
     }
   }, []);
 
+  const fetchFairnessReport = useCallback(async () => {
+    if (!selectedLocation || !user) return;
+    if (user.role === Role.STAFF) return;
+
+    setIsFairnessLoading(true);
+    try {
+      const from = format(startOfMonth(currentDate), "yyyy-MM-dd");
+      const to = format(endOfMonth(currentDate), "yyyy-MM-dd");
+      const report = await analyticsService.getFairnessReport(
+        from,
+        to,
+        selectedLocation,
+      );
+      setFairnessReport(report);
+    } catch (error) {
+      console.error("Failed to fetch fairness report:", error);
+    } finally {
+      setIsFairnessLoading(false);
+    }
+  }, [selectedLocation, currentDate, user]);
+
+  const fetchAuditLogs = useCallback(async () => {
+    if (!user || user.role !== Role.ADMIN) return;
+
+    setIsAuditLoading(true);
+    try {
+      const from = format(startOfMonth(currentDate), "yyyy-MM-dd");
+      const to = format(endOfMonth(currentDate), "yyyy-MM-dd");
+      const logs = await analyticsService.getAuditLogs({
+        from: `${from}T00:00:00.000Z`,
+        to: `${to}T23:59:59.999Z`,
+        limit: 200,
+      });
+      setAuditLogs(logs);
+    } catch (error) {
+      console.error("Failed to fetch audit logs:", error);
+    } finally {
+      setIsAuditLoading(false);
+    }
+  }, [currentDate, user]);
+
   useEffect(() => {
     const initLocations = async () => {
       try {
@@ -123,6 +174,14 @@ export default function ManagerDashboard() {
   }, [fetchApprovalQueue]);
 
   useEffect(() => {
+    fetchFairnessReport();
+  }, [fetchFairnessReport]);
+
+  useEffect(() => {
+    fetchAuditLogs();
+  }, [fetchAuditLogs]);
+
+  useEffect(() => {
     if (!selectedLocation || !user) return;
 
     const socket = getRealtimeSocket();
@@ -130,6 +189,8 @@ export default function ManagerDashboard() {
       fetchShifts();
       fetchLiveShifts();
       fetchApprovalQueue();
+      fetchFairnessReport();
+      fetchAuditLogs();
     };
 
     socket.emit("join.location", { locationId: selectedLocation });
@@ -167,6 +228,8 @@ export default function ManagerDashboard() {
     fetchShifts,
     fetchLiveShifts,
     fetchApprovalQueue,
+    fetchFairnessReport,
+    fetchAuditLogs,
     user,
   ]);
 
@@ -195,6 +258,49 @@ export default function ManagerDashboard() {
     (location) => location.id === selectedLocation,
   );
   const selectedLocationTimezone = selectedLocationData?.timezone ?? "UTC";
+  const fairnessTone =
+    (fairnessReport?.fairnessScore ?? 100) >= 80
+      ? "text-emerald-300"
+      : (fairnessReport?.fairnessScore ?? 100) >= 60
+        ? "text-amber-300"
+        : "text-rose-300";
+
+  const exportAuditCsv = () => {
+    if (auditLogs.length === 0) return;
+
+    const header = [
+      "createdAt",
+      "entityType",
+      "entityId",
+      "action",
+      "actorId",
+      "targetUserId",
+    ];
+    const rows = auditLogs.map((log) => [
+      String(log.createdAt),
+      log.entityType,
+      log.entityId,
+      log.action,
+      log.actorId ?? "",
+      log.targetUserId ?? "",
+    ]);
+
+    const csv = [header, ...rows]
+      .map((row) =>
+        row
+          .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+          .join(","),
+      )
+      .join("\\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `audit_logs_${format(new Date(), "yyyyMMdd_HHmmss")}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleCreateOrUpdateShift = async (shiftData: Partial<Shift>) => {
     const editablePayload: Partial<Shift> = {
@@ -426,6 +532,123 @@ export default function ManagerDashboard() {
           </ul>
         )}
       </section>
+
+      {user?.role !== Role.STAFF && (
+        <section className="rounded-3xl border border-white/10 bg-[#141414] p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Fairness Analytics
+              </h2>
+              <p className="text-xs text-gray-400">
+                Hours and premium-shift distribution for the selected period.
+              </p>
+            </div>
+            <div className="text-right">
+              <p className={`text-xl font-semibold ${fairnessTone}`}>
+                {fairnessReport?.fairnessScore ?? 0}
+              </p>
+              <p className="text-[11px] text-gray-500">Fairness score</p>
+            </div>
+          </div>
+
+          {isFairnessLoading ? (
+            <p className="text-sm text-gray-400">Calculating fairness...</p>
+          ) : !fairnessReport || fairnessReport.metrics.length === 0 ? (
+            <p className="text-sm text-gray-400">
+              No staff metrics found for this range.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-sm text-gray-200">
+                <thead>
+                  <tr className="border-b border-white/10 text-xs uppercase text-gray-400">
+                    <th className="px-3 py-2">Staff</th>
+                    <th className="px-3 py-2">Total Hours</th>
+                    <th className="px-3 py-2">Premium Hours</th>
+                    <th className="px-3 py-2">Shift Count</th>
+                    <th className="px-3 py-2">Desired Delta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fairnessReport.metrics.map((metric) => (
+                    <tr key={metric.userId} className="border-b border-white/5">
+                      <td className="px-3 py-2">{metric.name}</td>
+                      <td className="px-3 py-2">{metric.totalHours}</td>
+                      <td className="px-3 py-2">{metric.premiumHours}</td>
+                      <td className="px-3 py-2">{metric.shiftCount}</td>
+                      <td
+                        className={`px-3 py-2 ${
+                          metric.desiredHoursDelta > 0
+                            ? "text-amber-300"
+                            : metric.desiredHoursDelta < 0
+                              ? "text-sky-300"
+                              : "text-gray-300"
+                        }`}
+                      >
+                        {metric.desiredHoursDelta}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {user?.role === Role.ADMIN && (
+        <section className="rounded-3xl border border-white/10 bg-[#141414] p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-white">
+              Audit Trail Export
+            </h2>
+            <button
+              onClick={exportAuditCsv}
+              className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20"
+            >
+              Export CSV
+            </button>
+          </div>
+
+          {isAuditLoading ? (
+            <p className="text-sm text-gray-400">Loading audit logs...</p>
+          ) : auditLogs.length === 0 ? (
+            <p className="text-sm text-gray-400">
+              No audit records in the selected period.
+            </p>
+          ) : (
+            <div className="max-h-80 overflow-auto rounded-xl border border-white/10">
+              <table className="min-w-full text-left text-xs text-gray-200">
+                <thead className="bg-black/20 text-[11px] uppercase text-gray-400">
+                  <tr>
+                    <th className="px-3 py-2">When</th>
+                    <th className="px-3 py-2">Entity</th>
+                    <th className="px-3 py-2">Action</th>
+                    <th className="px-3 py-2">Actor</th>
+                    <th className="px-3 py-2">Target</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {auditLogs.map((log) => (
+                    <tr key={log.id} className="border-t border-white/5">
+                      <td className="px-3 py-2">
+                        {format(new Date(log.createdAt), "yyyy-MM-dd HH:mm")}
+                      </td>
+                      <td className="px-3 py-2">
+                        {log.entityType} · {log.entityId.slice(0, 8)}
+                      </td>
+                      <td className="px-3 py-2">{log.action}</td>
+                      <td className="px-3 py-2">{log.actorId ?? "system"}</td>
+                      <td className="px-3 py-2">{log.targetUserId ?? "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
 
       <ShiftDetailModal
         isOpen={isModalOpen}

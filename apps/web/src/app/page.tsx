@@ -6,8 +6,9 @@ export default function Home() {
     name: "Admin User",
     email: "admin@example.com",
     role: Role.ADMIN,
+    desiredWeeklyHours: 40,
     skills: [Skill.HOST],
-    certifiedLocations: []
+    certifiedLocations: [],
   };
 
   return (

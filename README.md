@@ -11,6 +11,7 @@ Follow these steps in order to set up your local development environment.
 ### 1. Prerequisites
 
 Ensure you have the following installed:
+
 - [Node.js](https://nodejs.org/) (v20+)
 - [pnpm](https://pnpm.io/installation) (v10+)
 - [Docker & Docker Desktop](https://www.docker.com/products/docker-desktop/)
@@ -58,13 +59,14 @@ Once the database is running, initialize your schema and seed it with test data:
     ```
 2.  **Seed Data:**
     ```bash
-    pnpm --filter api run seed
+    pnpm --filter api run db:seed
     ```
-    *   **Admin**: `admin@example.com` / `password123`
-    *   **Manager (Seattle)**: `manager.sea@example.com` / `password123`
-    *   **Manager (NY)**: `manager.ny@example.com` / `password123`
-    *   **Staff**: `alice@example.com` / `password123` or `bob@example.com` / `password123`
-    *   *Note: Additional accounts can be found in `apps/api/prisma/seed.ts`.*
+
+    - **Admin**: `admin@example.com` / `password123`
+    - **Manager (Seattle)**: `manager.sea@example.com` / `password123`
+    - **Manager (NY)**: `manager.ny@example.com` / `password123`
+    - **Staff**: `alice@example.com` / `password123` or `bob@example.com` / `password123`
+    - _Note: Additional accounts can be found in `apps/api/prisma/seed.ts`._
 
 ---
 
@@ -94,11 +96,13 @@ If you need to run only one application:
 ## Quality & Testing
 
 ### Run All Tests
+
 ```bash
 pnpm run test
 ```
 
 ### Linting & Formatting
+
 ```bash
 pnpm run lint
 pnpm run format

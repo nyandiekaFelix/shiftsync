@@ -122,6 +122,8 @@ async function main() {
   try {
     // Clean the database
     console.log('Cleaning existing data...');
+    await prisma.notification.deleteMany();
+    await prisma.auditLog.deleteMany();
     await prisma.swapRequest.deleteMany();
     await prisma.availability.deleteMany();
     await prisma.assignment.deleteMany();
@@ -179,6 +181,7 @@ async function main() {
         name: 'Seattle Manager',
         password: hashedPassword,
         role: Role.MANAGER,
+        desiredWeeklyHours: 40,
         certifiedLocations: [loc1.id, loc2.id],
       },
     });
@@ -189,6 +192,7 @@ async function main() {
         name: 'NY Manager',
         password: hashedPassword,
         role: Role.MANAGER,
+        desiredWeeklyHours: 40,
         certifiedLocations: [loc3.id, loc4.id],
       },
     });
@@ -327,6 +331,7 @@ async function main() {
           name: s.name,
           password: hashedPassword,
           role: Role.STAFF,
+          desiredWeeklyHours: 32 + (dbStaff.length % 3) * 4,
           skills: s.skills,
           certifiedLocations: s.locs,
         },
