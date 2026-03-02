@@ -1,51 +1,171 @@
-'use client';
+"use client";
 
-import { useAuth } from '@/context/auth-context';
-import { Calendar, Clock, MapPin } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import { useAuth } from "@/context/auth-context";
+import { shiftService } from "@/services/shift-service";
+import { Shift } from "@shiftsync/shared-types";
+import {
+  Clock,
+  MapPin,
+  Briefcase,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
+import {
+  format,
+  startOfWeek,
+  endOfWeek,
+  eachDayOfInterval,
+  isSameDay,
+  addWeeks,
+  subWeeks,
+} from "date-fns";
 
-export default function SchedulePage() {
-  const { user } = useAuth();
+export default function StaffSchedule() {
+  useAuth();
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [shifts, setShifts] = useState<Shift[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadShifts() {
+      try {
+        const start = format(startOfWeek(currentDate), "yyyy-MM-dd");
+        const end = format(endOfWeek(currentDate), "yyyy-MM-dd");
+        const data = await shiftService.findAll("", start, end);
+
+        if (isMounted) {
+          setShifts(data.filter((s) => s.status === "PUBLISHED"));
+        }
+      } catch (error) {
+        console.error("Failed to fetch shifts:", error);
+      }
+    }
+
+    loadShifts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentDate]);
+
+  const weekDays = eachDayOfInterval({
+    start: startOfWeek(currentDate),
+    end: endOfWeek(currentDate),
+  });
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold text-white tracking-tight flex items-center gap-3">
-          <Calendar className="text-emerald-500" size={32} />
-          My Schedule
-        </h1>
-        <p className="text-gray-400 mt-2">Hello, {user?.name}. Review your upcoming shifts and availability.</p>
+    <div className="space-y-8 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-white mb-2">
+            My Schedule
+          </h1>
+          <p className="text-gray-400">
+            View your upcoming shifts and available assignments.
+          </p>
+        </div>
+        <div className="flex items-center bg-[#141414] rounded-2xl p-1 border border-white/5 text-white">
+          <button
+            onClick={() => setCurrentDate(subWeeks(currentDate, 1))}
+            className="p-2 hover:bg-[#0a0a0a] rounded-xl text-gray-400 transition-all"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <div className="px-4 font-semibold text-sm">
+            Week of {format(startOfWeek(currentDate), "MMM d")}
+          </div>
+          <button
+            onClick={() => setCurrentDate(addWeeks(currentDate, 1))}
+            className="p-2 hover:bg-[#0a0a0a] rounded-xl text-gray-400 transition-all"
+          >
+            <ChevronRight size={20} />
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6">
-        <div className="bg-[#141414] border border-white/5 rounded-2xl p-8 flex flex-col items-center justify-center min-h-[400px] text-center">
-          <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-4">
-            <Clock className="text-gray-600" size={32} />
-          </div>
-          <h2 className="text-xl font-semibold text-white">Interactive Schedule Coming Soon</h2>
-          <p className="text-gray-500 mt-2 max-w-md">The drag-and-drop schedule and shift swap features are currently under development.</p>
+      <div className="space-y-6">
+        {weekDays.map((day) => {
+          const dayShifts = shifts.filter((s) =>
+            isSameDay(new Date(s.startTime), day),
+          );
+          const isToday = isSameDay(day, new Date());
 
-          <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-lg">
-            <div className="bg-[#1a1a1a] p-4 rounded-xl border border-white/5 text-left">
-              <div className="flex items-center gap-2 text-emerald-400 mb-1">
-                <Clock size={14} />
-                <span className="text-xs font-bold uppercase tracking-wider">Next Shift</span>
+          return (
+            <div
+              key={day.toString()}
+              className={`relative transition-all ${isToday ? "scale-[1.02] z-10" : ""}`}
+            >
+              <div
+                className={`p-6 rounded-3xl border transition-all ${
+                  isToday
+                    ? "bg-indigo-600/10 border-indigo-500/30"
+                    : "bg-[#141414] border-white/5 hover:border-white/10"
+                }`}
+              >
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div
+                      className={`w-12 h-12 rounded-2xl flex flex-col items-center justify-center font-bold ${
+                        isToday
+                          ? "bg-indigo-600 text-white"
+                          : "bg-[#0a0a0a] text-gray-400"
+                      }`}
+                    >
+                      <span className="text-[10px] uppercase leading-none mb-1">
+                        {format(day, "EEE")}
+                      </span>
+                      <span className="text-lg leading-none">
+                        {format(day, "d")}
+                      </span>
+                    </div>
+                    <div className="text-white">
+                      <h3 className="font-semibold text-lg">
+                        {dayShifts.length > 0
+                          ? `${dayShifts.length} Shift(s)`
+                          : "No shifts scheduled"}
+                      </h3>
+                      <p className="text-gray-500 text-sm">
+                        {isToday
+                          ? "Today's assignments"
+                          : format(day, "MMMM do, yyyy")}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    {dayShifts.map((shift) => (
+                      <div
+                        key={shift.id}
+                        className="bg-[#0a0a0a] border border-white/5 p-4 rounded-2xl flex items-center justify-between gap-10"
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center text-green-500">
+                            <Clock size={20} />
+                          </div>
+                          <div className="text-white">
+                            <div className="font-medium">
+                              {format(new Date(shift.startTime), "HH:mm")} -{" "}
+                              {format(new Date(shift.endTime), "HH:mm")}
+                            </div>
+                            <div className="text-xs text-gray-500 flex items-center gap-1">
+                              <Briefcase size={12} />
+                              <span>{shift.requiredSkill}</span>
+                              <span className="mx-1">•</span>
+                              <MapPin size={12} />
+                              <span>{shift.locationId}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <p className="text-white font-medium">Tomorrow, 9:00 AM</p>
-              <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                <MapPin size={10} />
-                Seattle North
-              </p>
             </div>
-            <div className="bg-[#1a1a1a] p-4 rounded-xl border border-white/5 text-left">
-              <div className="flex items-center gap-2 text-blue-400 mb-1">
-                <Calendar size={14} />
-                <span className="text-xs font-bold uppercase tracking-wider">Status</span>
-              </div>
-              <p className="text-white font-medium">Fully Available</p>
-              <p className="text-xs text-gray-500 mt-1">Next 7 days</p>
-            </div>
-          </div>
-        </div>
+          );
+        })}
       </div>
     </div>
   );

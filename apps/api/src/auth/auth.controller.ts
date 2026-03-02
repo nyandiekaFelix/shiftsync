@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
-import type { AuthUser, LoginResponse } from './auth.service';
+import { AuthUser, LoginResponse } from '@shiftsync/shared-types';
 import { LocalAuthGuard } from './guards/local-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { ApiTags, ApiOperation, ApiBody, ApiResponse } from '@nestjs/swagger';
@@ -34,11 +34,11 @@ export class AuthController {
   @ApiBody({ type: LoginDto })
   @ApiResponse({ status: 200, description: 'Return JWT access token' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  login(
+  async login(
     @NestRequest() req: AuthenticatedRequest,
     @Res({ passthrough: true }) res: Response,
-  ): LoginResponse {
-    const result = this.authService.login(req.user);
+  ): Promise<LoginResponse> {
+    const result = await this.authService.login(req.user);
 
     // Set cookie
     res.cookie('access_token', result.access_token, {
@@ -46,6 +46,7 @@ export class AuthController {
       secure: this.configService.get('NODE_ENV') === 'production',
       sameSite: 'strict',
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
+      path: '/',
     });
 
     return result;
@@ -55,7 +56,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'User logout' })
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('access_token');
+    res.clearCookie('access_token', { path: '/' });
     return { message: 'Logged out successfully' };
   }
 }

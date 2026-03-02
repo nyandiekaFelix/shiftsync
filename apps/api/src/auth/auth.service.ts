@@ -2,19 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { User, Role } from '@prisma/client';
-
-export interface AuthUser {
-  id: string;
-  email: string;
-  name: string;
-  role: Role;
-}
-
-export interface LoginResponse {
-  access_token: string;
-  user: AuthUser;
-}
+import { AuthUser, LoginResponse } from '@shiftsync/shared-types';
+import { User } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -46,15 +35,18 @@ export class AuthService {
     return result as AuthUser;
   }
 
-  login(user: AuthUser): LoginResponse {
+  async login(user: AuthUser): Promise<LoginResponse> {
+    const dbUser = await this.prisma.db.user.findUnique({
+      where: { id: user.id },
+      select: { certifiedLocations: true },
+    });
+
     const payload = { email: user.email, sub: user.id, role: user.role };
     return {
       access_token: this.jwtService.sign(payload),
       user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
+        ...user,
+        certifiedLocations: dbUser?.certifiedLocations || [],
       },
     };
   }

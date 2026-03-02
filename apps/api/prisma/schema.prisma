@@ -6,6 +6,89 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id                 String         @id @default(uuid())
+  email              String         @unique
+  name               String
+  role               Role           @default(STAFF)
+  skills             Skill[]
+  certifiedLocations String[]
+  deletedAt          DateTime?
+  password           String
+  assignments        Assignment[]
+  availabilities     Availability[]
+  receivedSwaps      SwapRequest[]  @relation("Receiver")
+  initiatedSwaps     SwapRequest[]  @relation("Requester")
+
+  @@map("users")
+}
+
+model Location {
+  id        String    @id @default(uuid())
+  name      String
+  timezone  String
+  address   String?
+  deletedAt DateTime?
+  shifts    Shift[]
+
+  @@map("locations")
+}
+
+model Shift {
+  id                String        @id @default(uuid())
+  locationId        String
+  startTime         DateTime
+  endTime           DateTime
+  requiredSkill     Skill
+  requiredHeadcount Int           @default(1)
+  deletedAt         DateTime?
+  status            ShiftStatus   @default(DRAFT)
+  assignments       Assignment[]
+  location          Location      @relation(fields: [locationId], references: [id])
+  swaps             SwapRequest[]
+
+  @@map("shifts")
+}
+
+model Assignment {
+  id        String    @id @default(uuid())
+  shiftId   String
+  userId    String
+  deletedAt DateTime?
+  shift     Shift     @relation(fields: [shiftId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@map("assignments")
+}
+
+model Availability {
+  id        String           @id @default(uuid())
+  userId    String
+  dayOfWeek Int?
+  startTime String?
+  endTime   String?
+  date      DateTime?
+  type      AvailabilityType @default(RECURRING)
+  deletedAt DateTime?
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@map("availabilities")
+}
+
+model SwapRequest {
+  id          String     @id @default(uuid())
+  requesterId String
+  receiverId  String
+  shiftId     String
+  status      SwapStatus @default(PENDING)
+  deletedAt   DateTime?
+  receiver    User       @relation("Receiver", fields: [receiverId], references: [id])
+  requester   User       @relation("Requester", fields: [requesterId], references: [id])
+  shift       Shift      @relation(fields: [shiftId], references: [id])
+
+  @@map("swap_requests")
+}
+
 enum Role {
   ADMIN
   MANAGER
@@ -33,90 +116,7 @@ enum SwapStatus {
   EXPIRED
 }
 
-model User {
-  id                 String    @id @default(uuid())
-  email              String    @unique
-  name               String
-  password           String
-  role               Role      @default(STAFF)
-  skills             Skill[]
-  certifiedLocations String[] // Array of Location IDs
-  deletedAt          DateTime?
-
-  availabilities Availability[]
-  assignments    Assignment[]
-  initiatedSwaps SwapRequest[]  @relation("Requester")
-  receivedSwaps  SwapRequest[]  @relation("Receiver")
-
-  @@map("users")
-}
-
-model Location {
-  id        String    @id @default(uuid())
-  name      String
-  timezone  String // IANA timezone identifier
-  address   String?
-  deletedAt DateTime?
-
-  shifts Shift[]
-
-  @@map("locations")
-}
-
-model Shift {
-  id                String    @id @default(uuid())
-  locationId        String
-  startTime         DateTime
-  endTime           DateTime
-  requiredSkill     Skill
-  requiredHeadcount Int       @default(1)
-  deletedAt         DateTime?
-
-  location    Location      @relation(fields: [locationId], references: [id])
-  assignments Assignment[]
-  swaps       SwapRequest[]
-
-  @@map("shifts")
-}
-
-model Assignment {
-  id        String    @id @default(uuid())
-  shiftId   String
-  userId    String
-  deletedAt DateTime?
-
-  shift Shift @relation(fields: [shiftId], references: [id])
-  user  User  @relation(fields: [userId], references: [id])
-
-  @@map("assignments")
-}
-
-model Availability {
-  id        String           @id @default(uuid())
-  userId    String
-  dayOfWeek Int? // 0-6, null for exceptions
-  startTime String? // HH:mm format
-  endTime   String? // HH:mm format
-  date      DateTime? // null for recurring
-  type      AvailabilityType @default(RECURRING)
-  deletedAt DateTime?
-
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("availabilities")
-}
-
-model SwapRequest {
-  id          String     @id @default(uuid())
-  requesterId String
-  receiverId  String
-  shiftId     String
-  status      SwapStatus @default(PENDING)
-  deletedAt   DateTime?
-
-  requester User  @relation("Requester", fields: [requesterId], references: [id])
-  receiver  User  @relation("Receiver", fields: [receiverId], references: [id])
-  shift     Shift @relation(fields: [shiftId], references: [id])
-
-  @@map("swap_requests")
+enum ShiftStatus {
+  DRAFT
+  PUBLISHED
 }

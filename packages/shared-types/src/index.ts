@@ -1,28 +1,33 @@
 export enum Role {
-  ADMIN = 'ADMIN',
-  MANAGER = 'MANAGER',
-  STAFF = 'STAFF',
+  ADMIN = "ADMIN",
+  MANAGER = "MANAGER",
+  STAFF = "STAFF",
 }
 
 export enum Skill {
-  BARTENDER = 'BARTENDER',
-  LINE_COOK = 'LINE_COOK',
-  SERVER = 'SERVER',
-  HOST = 'HOST',
+  BARTENDER = "BARTENDER",
+  LINE_COOK = "LINE_COOK",
+  SERVER = "SERVER",
+  HOST = "HOST",
 }
 
 export enum AvailabilityType {
-  RECURRING = 'RECURRING',
-  EXCEPTION = 'EXCEPTION',
+  RECURRING = "RECURRING",
+  EXCEPTION = "EXCEPTION",
 }
 
 export enum SwapStatus {
-  PENDING = 'PENDING',
-  ACCEPTED = 'ACCEPTED',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  CANCELLED = 'CANCELLED',
-  EXPIRED = 'EXPIRED',
+  PENDING = "PENDING",
+  ACCEPTED = "ACCEPTED",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+  CANCELLED = "CANCELLED",
+  EXPIRED = "EXPIRED",
+}
+
+export enum ShiftStatus {
+  DRAFT = "DRAFT",
+  PUBLISHED = "PUBLISHED",
 }
 
 export interface User {
@@ -46,11 +51,13 @@ export interface Location {
 export interface Shift {
   id: string;
   locationId: string;
-  startTime: Date;
-  endTime: Date;
+  startTime: Date | string;
+  endTime: Date | string;
   requiredSkill: Skill;
   requiredHeadcount: number;
+  status: ShiftStatus;
   deletedAt?: Date | null;
+  assignments?: Assignment[];
 }
 
 export interface Assignment {
@@ -66,7 +73,7 @@ export interface Availability {
   dayOfWeek?: number | null;
   startTime?: string | null;
   endTime?: string | null;
-  date?: Date | null;
+  date?: Date | string | null;
   type: AvailabilityType;
   deletedAt?: Date | null;
 }
@@ -78,4 +85,23 @@ export interface SwapRequest {
   shiftId: string;
   status: SwapStatus;
   deletedAt?: Date | null;
+}
+
+// Auth Types
+export interface LoginCredentials {
+  email: string;
+  password?: string;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: Role;
+  certifiedLocations: string[];
+}
+
+export interface LoginResponse {
+  access_token: string;
+  user: AuthUser;
 }

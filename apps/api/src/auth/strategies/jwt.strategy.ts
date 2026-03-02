@@ -5,16 +5,19 @@ import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 
+import { Role } from '@shiftsync/shared-types';
+
 export interface JwtPayload {
   email: string;
   sub: string;
-  role: string;
+  role: Role;
 }
 
 export interface AuthenticatedUser {
   id: string;
   email: string;
-  role: string;
+  role: Role;
+  certifiedLocations: string[];
 }
 
 @Injectable()
@@ -38,7 +41,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
     const user = await this.prisma.db.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, role: true },
+      select: { id: true, email: true, role: true, certifiedLocations: true },
     });
 
     if (!user) {
@@ -50,7 +53,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return {
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: user.role as unknown as Role,
+      certifiedLocations: user.certifiedLocations || [],
     };
   }
 }
