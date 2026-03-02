@@ -3,7 +3,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UnauthorizedException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role } from '@shiftsync/shared-types';
 
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;
@@ -44,6 +44,7 @@ describe('JwtStrategy', () => {
         id: 'user-1',
         email: 'test@example.com',
         role: Role.STAFF,
+        certifiedLocations: [],
       };
       (prisma.db.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
 
@@ -57,10 +58,11 @@ describe('JwtStrategy', () => {
         id: 'user-1',
         email: 'test@example.com',
         role: Role.STAFF, // Returns DB role (STAFF)
+        certifiedLocations: [],
       });
       expect(prisma.db.user.findUnique).toHaveBeenCalledWith({
         where: { id: 'user-1' },
-        select: { id: true, email: true, role: true },
+        select: { id: true, email: true, role: true, certifiedLocations: true },
       });
     });
 

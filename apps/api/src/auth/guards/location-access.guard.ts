@@ -1,3 +1,4 @@
+import { Request } from 'express';
 import {
   Injectable,
   CanActivate,
@@ -6,9 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
-import { Role } from '@prisma/client';
-import { Request } from 'express';
-import { AuthUser } from '../auth.service';
+import { AuthUser, Role } from '@shiftsync/shared-types';
 import {
   LOCATION_SOURCE_KEY,
   LocationSource,

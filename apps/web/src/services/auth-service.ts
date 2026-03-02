@@ -1,39 +1,25 @@
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  role: 'ADMIN' | 'MANAGER' | 'STAFF';
-  certifiedLocations: string[];
-}
-
-export interface LoginResponse {
-  access_token: string;
-  user: User;
-}
-
-export interface LoginCredentials {
-  email: string;
-  password?: string;
-}
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+import {
+  AuthUser,
+  LoginResponse,
+  LoginCredentials,
+} from "@shiftsync/shared-types";
+import { apiClient } from "./api-client";
 
 export const authService = {
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     if (!credentials?.email || !credentials?.password) {
-      throw new Error('Email and password are required');
+      throw new Error("Email and password are required");
     }
 
-    const response = await fetch(`${API_BASE_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const response = await apiClient.fetch("/auth/login", {
+      method: "POST",
       body: JSON.stringify(credentials),
-      credentials: 'include',
+      silentAuth: true,
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const message = errorData.message || 'Login failed';
+      const message = errorData.message || "Login failed";
       throw new Error(message);
     }
 
@@ -42,23 +28,20 @@ export const authService = {
   },
 
   async logout(): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/auth/logout`, {
-      method: 'POST',
-      credentials: 'include',
+    const response = await apiClient.fetch("/auth/logout", {
+      method: "POST",
+      silentAuth: true,
     });
     if (!response.ok) {
-      console.warn('Backend logout failed, continuing with client-side cleanup');
+      console.warn(
+        "Backend logout failed, continuing with client-side cleanup",
+      );
     }
   },
 
-  /**
-   * getCurrentUser attempts to fetch the profile of the currently logged-in user.
-   * If the user is unauthenticated (401), it returns null gracefully.
-   * If a network error occurs, it throws an error.
-   */
-  async getCurrentUser(): Promise<User | null> {
-    const response = await fetch(`${API_BASE_URL}/users/me`, {
-      credentials: 'include',
+  async getCurrentUser(): Promise<AuthUser | null> {
+    const response = await apiClient.fetch("/users/me", {
+      silentAuth: true,
     });
 
     if (response.status === 401 || response.status === 403) {
@@ -66,10 +49,10 @@ export const authService = {
     }
 
     if (!response.ok) {
-      throw new Error('Failed to fetch user session');
+      throw new Error("Failed to fetch user session");
     }
 
-    const data: User = await response.json();
+    const data: AuthUser = await response.json();
     return data;
   },
 };

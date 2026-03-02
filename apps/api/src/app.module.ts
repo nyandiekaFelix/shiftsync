@@ -6,6 +6,8 @@ import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { ShiftsModule } from './shifts/shifts.module';
+import { LocationsModule } from './locations/locations.module';
 
 import { validate } from './common/configs/env.validation';
 
@@ -22,6 +24,8 @@ import { validate } from './common/configs/env.validation';
     PrismaModule,
     AuthModule,
     UsersModule,
+    ShiftsModule,
+    LocationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -2,13 +2,15 @@ import {
   Controller,
   Get,
   UseGuards,
+  Query,
   Request as NestRequest,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthUser } from '../auth/auth.service';
+import { Prisma } from '@prisma/client';
+import { AuthUser, Role, Skill } from '@shiftsync/shared-types';
 
 interface AuthenticatedRequest extends Request {
   user: AuthUser;
@@ -36,5 +38,56 @@ export class UsersController {
       },
     });
     return user;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Get()
+  @ApiOperation({
+    summary: 'Get all users with optional location and skill filters',
+  })
+  async findAll(
+    @Query('locationId') locationId?: string,
+    @Query('skill') skill?: string,
+  ) {
+    const where: Prisma.UserWhereInput = {
+      role: Role.STAFF as unknown as Prisma.EnumRoleFilter,
+    };
+
+    if (locationId && locationId !== 'null' && locationId !== 'undefined') {
+      where.certifiedLocations = {
+        has: locationId,
+      };
+    }
+
+    if (skill && skill !== 'null' && skill !== 'undefined') {
+      where.skills = {
+        has: skill,
+      };
+    }
+
+    console.log(
+      '[UsersController] Fetching staff with where:',
+      JSON.stringify(where),
+    );
+
+    const users = await this.prisma.db.user.findMany({
+      where,
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        skills: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+
+    console.log(`[UsersController] Found ${users.length} staff members`);
+    return users.map((user) => ({
+      ...user,
+      role: user.role as unknown as Role,
+      skills: user.skills as unknown as Skill[],
+    }));
   }
 }
