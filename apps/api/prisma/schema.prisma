@@ -37,15 +37,16 @@ model User {
   id                 String    @id @default(uuid())
   email              String    @unique
   name               String
+  password           String
   role               Role      @default(STAFF)
   skills             Skill[]
   certifiedLocations String[] // Array of Location IDs
   deletedAt          DateTime?
 
-  availabilities  Availability[]
-  assignments     Assignment[]
-  initiatedSwaps  SwapRequest[]  @relation("Requester")
-  receivedSwaps   SwapRequest[]  @relation("Receiver")
+  availabilities Availability[]
+  assignments    Assignment[]
+  initiatedSwaps SwapRequest[]  @relation("Requester")
+  receivedSwaps  SwapRequest[]  @relation("Receiver")
 
   @@map("users")
 }
@@ -53,7 +54,7 @@ model User {
 model Location {
   id        String    @id @default(uuid())
   name      String
-  timezone  String    // IANA timezone identifier
+  timezone  String // IANA timezone identifier
   address   String?
   deletedAt DateTime?
 
@@ -71,7 +72,7 @@ model Shift {
   requiredHeadcount Int       @default(1)
   deletedAt         DateTime?
 
-  location    Location     @relation(fields: [locationId], references: [id])
+  location    Location      @relation(fields: [locationId], references: [id])
   assignments Assignment[]
   swaps       SwapRequest[]
 
@@ -93,10 +94,10 @@ model Assignment {
 model Availability {
   id        String           @id @default(uuid())
   userId    String
-  dayOfWeek Int?             // 0-6, null for exceptions
-  startTime String?          // HH:mm format
-  endTime   String?          // HH:mm format
-  date      DateTime?        // null for recurring
+  dayOfWeek Int? // 0-6, null for exceptions
+  startTime String? // HH:mm format
+  endTime   String? // HH:mm format
+  date      DateTime? // null for recurring
   type      AvailabilityType @default(RECURRING)
   deletedAt DateTime?
 
