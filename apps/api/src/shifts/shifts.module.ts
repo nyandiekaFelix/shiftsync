@@ -17,6 +17,6 @@ import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interc
     ConstraintEngineService,
     IdempotencyInterceptor,
   ],
-  exports: [ShiftsService, AssignmentsService],
+  exports: [ShiftsService, AssignmentsService, ConstraintEngineService],
 })
 export class ShiftsModule {}

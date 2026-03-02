@@ -99,4 +99,19 @@ export class RealtimeService {
       } satisfies StaffAssignmentRealtimeEvent,
     );
   }
+
+  emitSwapRequestUpdated(locationId: string, requestId: string): void {
+    const payload = {
+      event: ShiftSyncEvent.SWAP_REQUEST_UPDATED,
+      requestId,
+      locationId,
+      occurredAt: new Date().toISOString(),
+    };
+
+    this.eventsGateway.emitToLocation(
+      locationId,
+      ShiftSyncEvent.SWAP_REQUEST_UPDATED,
+      payload,
+    );
+  }
 }

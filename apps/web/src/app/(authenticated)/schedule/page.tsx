@@ -3,13 +3,23 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/auth-context";
 import { shiftService } from "@/services/shift-service";
-import { Shift, ShiftSyncEvent } from "@shiftsync/shared-types";
+import {
+  AuthUser,
+  Shift,
+  ShiftSyncEvent,
+  SwapRequest,
+  SwapRequestType,
+  SwapStatus,
+} from "@shiftsync/shared-types";
 import {
   Clock,
   MapPin,
   Briefcase,
   ChevronLeft,
   ChevronRight,
+  Handshake,
+  ArrowUpRight,
+  CircleSlash,
 } from "lucide-react";
 import {
   format,
@@ -26,6 +36,15 @@ export default function StaffSchedule() {
   const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [dropBoard, setDropBoard] = useState<SwapRequestItem[]>([]);
+  const [myRequests, setMyRequests] = useState<SwapRequestItem[]>([]);
+  const [isUpdatingRequests, setIsUpdatingRequests] = useState(false);
+
+  type SwapRequestItem = SwapRequest & {
+    shift?: Shift;
+    requester?: AuthUser;
+    receiver?: AuthUser;
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -52,14 +71,52 @@ export default function StaffSchedule() {
   }, [currentDate]);
 
   useEffect(() => {
+    let isMounted = true;
+
+    const loadRequests = async () => {
+      if (!user) return;
+
+      setIsUpdatingRequests(true);
+      try {
+        const [board, mine] = await Promise.all([
+          shiftService.listSwapRequests("drop-board"),
+          shiftService.listSwapRequests(),
+        ]);
+
+        if (!isMounted) return;
+        setDropBoard(board as SwapRequestItem[]);
+        setMyRequests(mine as SwapRequestItem[]);
+      } catch (error) {
+        console.error("Failed to fetch swap/drop requests:", error);
+      } finally {
+        if (isMounted) {
+          setIsUpdatingRequests(false);
+        }
+      }
+    };
+
+    loadRequests();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
+
+  useEffect(() => {
     if (!user) return;
 
     const socket = getRealtimeSocket();
     const refresh = async () => {
       const start = format(startOfWeek(currentDate), "yyyy-MM-dd");
       const end = format(endOfWeek(currentDate), "yyyy-MM-dd");
-      const data = await shiftService.findAll("", start, end);
-      setShifts(data.filter((s) => s.status === "PUBLISHED"));
+      const [schedule, board, mine] = await Promise.all([
+        shiftService.findAll("", start, end),
+        shiftService.listSwapRequests("drop-board"),
+        shiftService.listSwapRequests(),
+      ]);
+      setShifts(schedule.filter((s) => s.status === "PUBLISHED"));
+      setDropBoard(board as SwapRequestItem[]);
+      setMyRequests(mine as SwapRequestItem[]);
     };
 
     user.certifiedLocations.forEach((locationId) => {
@@ -71,19 +128,77 @@ export default function StaffSchedule() {
         console.error("Failed to refresh shifts after live update:", error),
       );
     };
+    const onSwapRequestUpdated = () => {
+      refresh().catch((error) =>
+        console.error(
+          "Failed to refresh swap requests after live update:",
+          error,
+        ),
+      );
+    };
 
     socket.on(
       ShiftSyncEvent.STAFF_ASSIGNMENT_UPDATED,
       onStaffAssignmentUpdated,
     );
+    socket.on(ShiftSyncEvent.SWAP_REQUEST_UPDATED, onSwapRequestUpdated);
 
     return () => {
       socket.off(
         ShiftSyncEvent.STAFF_ASSIGNMENT_UPDATED,
         onStaffAssignmentUpdated,
       );
+      socket.off(ShiftSyncEvent.SWAP_REQUEST_UPDATED, onSwapRequestUpdated);
     };
   }, [user, currentDate]);
+
+  const refreshRequests = async () => {
+    const [board, mine] = await Promise.all([
+      shiftService.listSwapRequests("drop-board"),
+      shiftService.listSwapRequests(),
+    ]);
+    setDropBoard(board as SwapRequestItem[]);
+    setMyRequests(mine as SwapRequestItem[]);
+  };
+
+  const handleDropRequest = async (shiftId: string) => {
+    try {
+      await shiftService.requestDrop(shiftId);
+      await refreshRequests();
+    } catch (error) {
+      console.error("Failed to create drop request:", error);
+    }
+  };
+
+  const handleSwapRequest = async (shiftId: string) => {
+    const receiverId = window.prompt("Enter peer staff ID to request a swap:");
+    if (!receiverId?.trim()) return;
+
+    try {
+      await shiftService.requestSwap(shiftId, receiverId.trim());
+      await refreshRequests();
+    } catch (error) {
+      console.error("Failed to create swap request:", error);
+    }
+  };
+
+  const handleClaimOrAccept = async (requestId: string) => {
+    try {
+      await shiftService.acceptSwapRequest(requestId);
+      await refreshRequests();
+    } catch (error) {
+      console.error("Failed to accept/claim request:", error);
+    }
+  };
+
+  const handleCancelRequest = async (requestId: string) => {
+    try {
+      await shiftService.cancelSwapRequest(requestId);
+      await refreshRequests();
+    } catch (error) {
+      console.error("Failed to cancel request:", error);
+    }
+  };
 
   const weekDays = eachDayOfInterval({
     start: startOfWeek(currentDate),
@@ -173,7 +288,7 @@ export default function StaffSchedule() {
                     {dayShifts.map((shift) => (
                       <div
                         key={shift.id}
-                        className="bg-[#0a0a0a] border border-white/5 p-4 rounded-2xl flex items-center justify-between gap-10"
+                        className="bg-[#0a0a0a] border border-white/5 p-4 rounded-2xl flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
                       >
                         <div className="flex items-center gap-4">
                           <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center text-green-500">
@@ -193,6 +308,20 @@ export default function StaffSchedule() {
                             </div>
                           </div>
                         </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleDropRequest(shift.id)}
+                            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-gray-100 hover:bg-white/10"
+                          >
+                            Offer Shift
+                          </button>
+                          <button
+                            onClick={() => handleSwapRequest(shift.id)}
+                            className="rounded-xl border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-xs font-medium text-indigo-200 hover:bg-indigo-500/20"
+                          >
+                            Request Swap
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -202,6 +331,91 @@ export default function StaffSchedule() {
           );
         })}
       </div>
+
+      <section className="rounded-3xl border border-white/10 bg-[#141414] p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">Shift Board</h2>
+          {isUpdatingRequests && (
+            <span className="text-xs text-gray-400">Refreshing...</span>
+          )}
+        </div>
+        {dropBoard.length === 0 ? (
+          <p className="text-sm text-gray-400">
+            No open drop requests right now.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {dropBoard.map((request) => (
+              <li
+                key={request.id}
+                className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-gray-200 md:flex-row md:items-center md:justify-between"
+              >
+                <div>
+                  <div className="font-medium">
+                    {(request.shift?.requiredSkill as string) ?? "Shift"} •{" "}
+                    {request.status}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    Requested by{" "}
+                    {request.requester?.name ?? request.requesterId}
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleClaimOrAccept(request.id)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/20"
+                >
+                  <Handshake size={14} />
+                  Claim Shift
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-[#141414] p-6">
+        <h2 className="mb-4 text-lg font-semibold text-white">My Requests</h2>
+        {myRequests.length === 0 ? (
+          <p className="text-sm text-gray-400">No active swap/drop requests.</p>
+        ) : (
+          <ul className="space-y-3">
+            {myRequests.map((request) => (
+              <li
+                key={request.id}
+                className="flex flex-col gap-3 rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-gray-200 md:flex-row md:items-center md:justify-between"
+              >
+                <div>
+                  <div className="font-medium">
+                    {request.type === SwapRequestType.SWAP ? "Swap" : "Drop"} •{" "}
+                    {request.status}
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    {request.type === SwapRequestType.SWAP ? (
+                      <span className="inline-flex items-center gap-1">
+                        <ArrowUpRight size={12} />
+                        Peer:{" "}
+                        {request.receiver?.name ?? request.receiverId ?? "TBD"}
+                      </span>
+                    ) : (
+                      <span>Shift available for claim</span>
+                    )}
+                  </div>
+                </div>
+                {request.status === SwapStatus.PENDING ||
+                request.status === SwapStatus.ACCEPTED_BY_PEER ? (
+                  <button
+                    onClick={() => handleCancelRequest(request.id)}
+                    className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-500/20"
+                  >
+                    <CircleSlash size={14} />
+                    Cancel
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

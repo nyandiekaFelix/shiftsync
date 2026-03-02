@@ -13,6 +13,8 @@ import {
   ConstraintIssue,
   ConstraintRuleCode,
   ShiftSyncEvent,
+  SwapRequest,
+  AuthUser,
 } from "@shiftsync/shared-types";
 import { toast } from "sonner";
 import { format, startOfMonth, endOfMonth } from "date-fns";
@@ -41,6 +43,15 @@ export default function ManagerDashboard() {
   const [assignmentBlocks, setAssignmentBlocks] = useState<
     Record<string, ConstraintIssue[]>
   >({});
+  const [approvalQueue, setApprovalQueue] = useState<SwapRequestItem[]>([]);
+
+  type SwapRequestItem = SwapRequest & {
+    requester?: AuthUser;
+    receiver?: AuthUser;
+    shift?: Shift & {
+      location?: Location;
+    };
+  };
 
   const fetchShifts = useCallback(async () => {
     if (!selectedLocation) return;
@@ -75,6 +86,15 @@ export default function ManagerDashboard() {
     }
   }, [selectedLocation]);
 
+  const fetchApprovalQueue = useCallback(async () => {
+    try {
+      const queue = await shiftService.listSwapRequests("approval");
+      setApprovalQueue(queue as SwapRequestItem[]);
+    } catch (error) {
+      console.error("Failed to fetch approval queue:", error);
+    }
+  }, []);
+
   useEffect(() => {
     const initLocations = async () => {
       try {
@@ -99,12 +119,17 @@ export default function ManagerDashboard() {
   }, [fetchLiveShifts]);
 
   useEffect(() => {
+    fetchApprovalQueue();
+  }, [fetchApprovalQueue]);
+
+  useEffect(() => {
     if (!selectedLocation || !user) return;
 
     const socket = getRealtimeSocket();
     const refresh = () => {
       fetchShifts();
       fetchLiveShifts();
+      fetchApprovalQueue();
     };
 
     socket.emit("join.location", { locationId: selectedLocation });
@@ -119,11 +144,13 @@ export default function ManagerDashboard() {
       toast.success("Schedule published");
       refresh();
     };
+    const onSwapRequestUpdated = () => refresh();
 
     socket.on(ShiftSyncEvent.SHIFT_UPDATED, onShiftUpdated);
     socket.on(ShiftSyncEvent.SHIFT_ASSIGNMENT_CREATED, onAssignmentCreated);
     socket.on(ShiftSyncEvent.SHIFT_ASSIGNMENT_REMOVED, onAssignmentRemoved);
     socket.on(ShiftSyncEvent.SCHEDULE_PUBLISHED, onSchedulePublished);
+    socket.on(ShiftSyncEvent.SWAP_REQUEST_UPDATED, onSwapRequestUpdated);
 
     const interval = window.setInterval(refresh, 30_000);
 
@@ -133,8 +160,36 @@ export default function ManagerDashboard() {
       socket.off(ShiftSyncEvent.SHIFT_ASSIGNMENT_CREATED, onAssignmentCreated);
       socket.off(ShiftSyncEvent.SHIFT_ASSIGNMENT_REMOVED, onAssignmentRemoved);
       socket.off(ShiftSyncEvent.SCHEDULE_PUBLISHED, onSchedulePublished);
+      socket.off(ShiftSyncEvent.SWAP_REQUEST_UPDATED, onSwapRequestUpdated);
     };
-  }, [selectedLocation, fetchShifts, fetchLiveShifts, user]);
+  }, [
+    selectedLocation,
+    fetchShifts,
+    fetchLiveShifts,
+    fetchApprovalQueue,
+    user,
+  ]);
+
+  const handleApprovalDecision = async (
+    requestId: string,
+    approve: boolean,
+  ) => {
+    try {
+      await shiftService.approveSwapRequest(
+        requestId,
+        approve,
+        approve ? undefined : "Manager denied request",
+      );
+      toast.success(approve ? "Request approved" : "Request denied");
+      fetchApprovalQueue();
+      fetchShifts();
+      fetchLiveShifts();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to review request";
+      toast.error(message);
+    }
+  };
 
   const selectedLocationData = allLocations.find(
     (location) => location.id === selectedLocation,
@@ -320,6 +375,51 @@ export default function ManagerDashboard() {
                   {format(new Date(shift.endTime), "HH:mm")} •{" "}
                   {shift.assignments?.length ?? 0}/{shift.requiredHeadcount}{" "}
                   assigned
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded-3xl border border-white/10 bg-[#141414] p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">Approval Queue</h2>
+          <span className="text-xs text-gray-400">
+            {approvalQueue.length} pending
+          </span>
+        </div>
+        {approvalQueue.length === 0 ? (
+          <p className="text-sm text-gray-400">
+            No peer-accepted swap/drop requests waiting for review.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {approvalQueue.map((request) => (
+              <li
+                key={request.id}
+                className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-gray-200"
+              >
+                <div className="font-medium">
+                  {request.shift?.requiredSkill ?? "Shift"} • {request.status}
+                </div>
+                <div className="mt-1 text-xs text-gray-400">
+                  {request.requester?.name ?? request.requesterId} →{" "}
+                  {request.receiver?.name ?? request.receiverId}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => handleApprovalDecision(request.id, true)}
+                    className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/20"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handleApprovalDecision(request.id, false)}
+                    className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-500/20"
+                  >
+                    Deny
+                  </button>
                 </div>
               </li>
             ))}

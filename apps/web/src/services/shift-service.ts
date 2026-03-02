@@ -4,6 +4,7 @@ import {
   AuthUser,
   AssignStaffResponse,
   ConstraintViolationPayload,
+  SwapRequest,
 } from "@shiftsync/shared-types";
 import { apiClient } from "./api-client";
 
@@ -195,6 +196,131 @@ export const shiftService = {
 
     if (!response.ok) {
       throw new Error("Failed to fetch live shifts");
+    }
+
+    return response.json();
+  },
+
+  async requestSwap(shiftId: string, receiverId: string): Promise<SwapRequest> {
+    const response = await apiClient.fetch("/swap-requests/swap", {
+      method: "POST",
+      body: JSON.stringify({ shiftId, receiverId }),
+      headers: {
+        "Idempotency-Key": createIdempotencyKey(),
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: "Failed to request swap" }));
+      throw new Error(errorData.message || "Failed to request swap");
+    }
+
+    return response.json();
+  },
+
+  async requestDrop(shiftId: string): Promise<SwapRequest> {
+    const response = await apiClient.fetch("/swap-requests/drop", {
+      method: "POST",
+      body: JSON.stringify({ shiftId }),
+      headers: {
+        "Idempotency-Key": createIdempotencyKey(),
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: "Failed to request drop" }));
+      throw new Error(errorData.message || "Failed to request drop");
+    }
+
+    return response.json();
+  },
+
+  async acceptSwapRequest(requestId: string): Promise<SwapRequest> {
+    const response = await apiClient.fetch(
+      `/swap-requests/${requestId}/accept`,
+      {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": createIdempotencyKey(),
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: "Failed to accept request" }));
+      throw new Error(errorData.message || "Failed to accept request");
+    }
+
+    return response.json();
+  },
+
+  async cancelSwapRequest(requestId: string): Promise<SwapRequest> {
+    const response = await apiClient.fetch(
+      `/swap-requests/${requestId}/cancel`,
+      {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": createIdempotencyKey(),
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: "Failed to cancel request" }));
+      throw new Error(errorData.message || "Failed to cancel request");
+    }
+
+    return response.json();
+  },
+
+  async approveSwapRequest(
+    requestId: string,
+    approve: boolean,
+    reason?: string,
+  ): Promise<{
+    request: SwapRequest;
+  }> {
+    const response = await apiClient.fetch(
+      `/swap-requests/${requestId}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({ approve, reason }),
+        headers: {
+          "Idempotency-Key": createIdempotencyKey(),
+        },
+      },
+    );
+
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: "Failed to review request" }));
+      throw new Error(errorData.message || "Failed to review request");
+    }
+
+    return response.json();
+  },
+
+  async listSwapRequests(
+    scope?: "approval" | "drop-board",
+  ): Promise<SwapRequest[]> {
+    const params = new URLSearchParams();
+    if (scope) {
+      params.set("scope", scope);
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const response = await apiClient.fetch(`/swap-requests${suffix}`);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch swap requests");
     }
 
     return response.json();

@@ -18,11 +18,15 @@ export enum AvailabilityType {
 
 export enum SwapStatus {
   PENDING = "PENDING",
-  ACCEPTED = "ACCEPTED",
+  ACCEPTED_BY_PEER = "ACCEPTED_BY_PEER",
   APPROVED = "APPROVED",
-  REJECTED = "REJECTED",
   CANCELLED = "CANCELLED",
   EXPIRED = "EXPIRED",
+}
+
+export enum SwapRequestType {
+  SWAP = "SWAP",
+  DROP = "DROP",
 }
 
 export enum ShiftStatus {
@@ -80,10 +84,17 @@ export interface Availability {
 
 export interface SwapRequest {
   id: string;
+  type: SwapRequestType;
   requesterId: string;
-  receiverId: string;
+  receiverId?: string | null;
   shiftId: string;
   status: SwapStatus;
+  expiresAt?: Date | string | null;
+  acceptedAt?: Date | string | null;
+  resolvedAt?: Date | string | null;
+  resolutionNote?: string | null;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
   deletedAt?: Date | null;
 }
 
@@ -161,6 +172,7 @@ export enum ShiftSyncEvent {
   SHIFT_ASSIGNMENT_REMOVED = "shift.assignment.removed",
   SCHEDULE_PUBLISHED = "schedule.published",
   STAFF_ASSIGNMENT_UPDATED = "staff.assignment.updated",
+  SWAP_REQUEST_UPDATED = "swap.request.updated",
 }
 
 export interface ShiftRealtimeEvent {

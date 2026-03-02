@@ -76,15 +76,26 @@ model Availability {
 }
 
 model SwapRequest {
-  id          String     @id @default(uuid())
-  requesterId String
-  receiverId  String
-  shiftId     String
-  status      SwapStatus @default(PENDING)
-  deletedAt   DateTime?
-  receiver    User       @relation("Receiver", fields: [receiverId], references: [id])
-  requester   User       @relation("Requester", fields: [requesterId], references: [id])
-  shift       Shift      @relation(fields: [shiftId], references: [id])
+  id             String          @id @default(uuid())
+  type           SwapRequestType
+  requesterId    String
+  receiverId     String?
+  shiftId        String
+  status         SwapStatus      @default(PENDING)
+  expiresAt      DateTime?
+  acceptedAt     DateTime?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
+  receiver       User?           @relation("Receiver", fields: [receiverId], references: [id])
+  requester      User            @relation("Requester", fields: [requesterId], references: [id])
+  shift          Shift           @relation(fields: [shiftId], references: [id])
+
+  @@index([requesterId, status])
+  @@index([receiverId, status])
+  @@index([shiftId, type, status])
 
   @@map("swap_requests")
 }
@@ -109,11 +120,15 @@ enum AvailabilityType {
 
 enum SwapStatus {
   PENDING
-  ACCEPTED
+  ACCEPTED_BY_PEER
   APPROVED
-  REJECTED
   CANCELLED
   EXPIRED
+}
+
+enum SwapRequestType {
+  SWAP
+  DROP
 }
 
 enum ShiftStatus {
