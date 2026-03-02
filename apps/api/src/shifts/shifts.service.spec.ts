@@ -110,12 +110,12 @@ describe('ShiftsService', () => {
       });
       const findManyCalls = (prisma.db.shift.findMany as jest.Mock).mock
         .calls as unknown[][];
-      const firstCall = findManyCalls[0]?.[0] as {
+      const latestCall = findManyCalls.at(-1)?.[0] as {
         where?: {
           locationId?: string;
         };
       };
-      expect(firstCall.where?.locationId).toBe('loc-1');
+      expect(latestCall.where?.locationId).toBe('loc-1');
       expect(result).toEqual(mockShifts);
     });
 

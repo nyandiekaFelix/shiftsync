@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, SwapRequestType, SwapStatus } from '@prisma/client';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { Shift, ShiftStatus, Role, AuthUser } from '@shiftsync/shared-types';
@@ -220,11 +220,54 @@ export class ShiftsService {
       );
     }
 
-    const shift = await this.prisma.db.shift.update({
-      where: { id },
-      data,
-    });
+    const { shift, cancelledSwapRequests } = await this.prisma.db.$transaction(
+      async (tx) => {
+        const updatedShift = await tx.shift.update({
+          where: { id },
+          data,
+        });
+
+        const activeSwapRequests = await tx.swapRequest.findMany({
+          where: {
+            shiftId: id,
+            type: SwapRequestType.SWAP,
+            status: {
+              in: [SwapStatus.PENDING, SwapStatus.ACCEPTED_BY_PEER],
+            },
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+        if (activeSwapRequests.length > 0) {
+          await tx.swapRequest.updateMany({
+            where: {
+              id: {
+                in: activeSwapRequests.map((request) => request.id),
+              },
+            },
+            data: {
+              status: SwapStatus.CANCELLED,
+              resolvedAt: new Date(),
+              resolutionNote:
+                'Cancelled automatically because shift was edited',
+            },
+          });
+        }
+
+        return {
+          shift: updatedShift,
+          cancelledSwapRequests: activeSwapRequests,
+        };
+      },
+    );
+
     this.realtimeService.emitShiftUpdated(shift.locationId, shift.id);
+    cancelledSwapRequests.forEach((request) => {
+      this.realtimeService.emitSwapRequestUpdated(shift.locationId, request.id);
+    });
     return shift as unknown as Shift;
   }
 
