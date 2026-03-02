@@ -39,6 +39,7 @@ export interface User {
   email: string;
   name: string;
   role: Role;
+  desiredWeeklyHours: number;
   skills: Skill[];
   certifiedLocations: string[];
   deletedAt?: Date | null;
@@ -110,6 +111,7 @@ export interface AuthUser {
   name: string;
   role: Role;
   certifiedLocations: string[];
+  desiredWeeklyHours?: number;
 }
 
 export interface LoginResponse {
@@ -185,4 +187,70 @@ export interface ShiftRealtimeEvent {
 export interface StaffAssignmentRealtimeEvent extends ShiftRealtimeEvent {
   staffId: string;
   assignmentId?: string;
+}
+
+export enum AuditEntityType {
+  SHIFT = "SHIFT",
+  ASSIGNMENT = "ASSIGNMENT",
+  SWAP_REQUEST = "SWAP_REQUEST",
+}
+
+export enum AuditAction {
+  CREATE = "CREATE",
+  UPDATE = "UPDATE",
+  SOFT_DELETE = "SOFT_DELETE",
+  STATUS_CHANGE = "STATUS_CHANGE",
+}
+
+export interface AuditLogEntry {
+  id: string;
+  entityType: AuditEntityType;
+  entityId: string;
+  action: AuditAction;
+  actorId?: string | null;
+  targetUserId?: string | null;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  diff?: Record<string, unknown> | null;
+  createdAt: Date | string;
+}
+
+export enum NotificationType {
+  SHIFT_ASSIGNED = "SHIFT_ASSIGNED",
+  SHIFT_UNASSIGNED = "SHIFT_UNASSIGNED",
+  SHIFT_UPDATED = "SHIFT_UPDATED",
+  SCHEDULE_PUBLISHED = "SCHEDULE_PUBLISHED",
+  SWAP_REQUEST_UPDATED = "SWAP_REQUEST_UPDATED",
+  OVERTIME_WARNING = "OVERTIME_WARNING",
+}
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  metadata?: Record<string, unknown> | null;
+  readAt?: Date | string | null;
+  createdAt: Date | string;
+}
+
+export interface FairnessStaffMetric {
+  userId: string;
+  name: string;
+  totalHours: number;
+  premiumHours: number;
+  shiftCount: number;
+  desiredWeeklyHours: number;
+  desiredHoursDelta: number;
+}
+
+export interface FairnessReport {
+  from: string;
+  to: string;
+  locationId?: string;
+  metrics: FairnessStaffMetric[];
+  standardDeviationHours: number;
+  standardDeviationPremiumHours: number;
+  fairnessScore: number;
 }

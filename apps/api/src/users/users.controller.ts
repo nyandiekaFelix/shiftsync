@@ -33,6 +33,7 @@ export class UsersController {
         email: true,
         name: true,
         role: true,
+        desiredWeeklyHours: true,
         skills: true,
         certifiedLocations: true,
       },

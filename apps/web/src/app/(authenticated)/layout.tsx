@@ -1,17 +1,22 @@
-'use client';
+"use client";
 
-import { useAuth } from '@/context/auth-context';
-import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
-import { Loader2, LogOut, User as UserIcon } from 'lucide-react';
+import { useAuth } from "@/context/auth-context";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { Loader2, LogOut, User as UserIcon } from "lucide-react";
+import NotificationCenter from "@/components/notifications/notification-center";
 
-export default function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
+export default function AuthenticatedLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { user, isLoading, logout } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!isLoading && !user) {
-      router.push('/login');
+      router.push("/login");
     }
   }, [user, isLoading, router]);
 
@@ -24,9 +29,9 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
   }
 
   const roleStyles = {
-    ADMIN: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-    MANAGER: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
-    STAFF: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    ADMIN: "bg-purple-500/10 text-purple-400 border-purple-500/20",
+    MANAGER: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
+    STAFF: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   };
 
   return (
@@ -37,13 +42,18 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">S</span>
             </div>
-            <span className="text-xl font-bold text-white tracking-tight">ShiftSync</span>
-            <span className={`ml-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full border ${roleStyles[user.role]}`}>
+            <span className="text-xl font-bold text-white tracking-tight">
+              ShiftSync
+            </span>
+            <span
+              className={`ml-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full border ${roleStyles[user.role]}`}
+            >
               {user.role}
             </span>
           </div>
 
           <div className="flex items-center gap-6">
+            <NotificationCenter />
             <div className="flex items-center gap-3 pr-6 border-r border-white/5">
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-medium text-white">{user.name}</p>
@@ -58,7 +68,10 @@ export default function AuthenticatedLayout({ children }: { children: React.Reac
               onClick={() => logout()}
               className="group flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm font-medium"
             >
-              <LogOut size={18} className="group-hover:translate-x-0.5 transition-transform" />
+              <LogOut
+                size={18}
+                className="group-hover:translate-x-0.5 transition-transform"
+              />
               <span className="hidden sm:inline">Logout</span>
             </button>
           </div>

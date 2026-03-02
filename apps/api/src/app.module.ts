@@ -12,6 +12,9 @@ import { LocationsModule } from './locations/locations.module';
 import { RedisModule } from './common/redis/redis.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { SwapRequestsModule } from './swap-requests/swap-requests.module';
+import { AuditModule } from './audit/audit.module';
+import { FairnessModule } from './fairness/fairness.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 import { validate } from './common/configs/env.validation';
 
@@ -53,6 +56,9 @@ import { validate } from './common/configs/env.validation';
     ShiftsModule,
     SwapRequestsModule,
     LocationsModule,
+    AuditModule,
+    FairnessModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

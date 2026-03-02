@@ -4,6 +4,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  AuditAction,
+  AuditEntityType,
+  NotificationType,
   Prisma,
   Role,
   SwapRequestType,
@@ -16,6 +19,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConstraintEngineService } from '../shifts/constraints/constraint-engine.service';
 import { ConstraintViolationException } from '../shifts/constraints/constraint-violation.exception';
 import { RealtimeService } from '../realtime/realtime.service';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   EXPIRE_DROP_JOB,
   SWAP_REQUESTS_QUEUE,
@@ -53,11 +58,18 @@ export class SwapRequestsService {
     private readonly prisma: PrismaService,
     private readonly constraintEngine: ConstraintEngineService,
     private readonly realtimeService: RealtimeService,
+    private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
     @InjectQueue(SWAP_REQUESTS_QUEUE)
     private readonly swapRequestsQueue: Queue,
   ) {}
 
-  async requestSwap(requesterId: string, shiftId: string, receiverId: string) {
+  async requestSwap(
+    requesterId: string,
+    shiftId: string,
+    receiverId: string,
+    actorId?: string,
+  ) {
     if (requesterId === receiverId) {
       throw new BadRequestException('Cannot request a swap with yourself');
     }
@@ -125,6 +137,39 @@ export class SwapRequestsService {
             status: SwapStatus.PENDING,
           },
         });
+
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.SWAP_REQUEST,
+          entityId: created.id,
+          action: AuditAction.CREATE,
+          actorId,
+          targetUserId: receiverId,
+          after: created,
+        });
+
+        await this.notificationsService.createMany(tx, [
+          {
+            userId: requesterId,
+            type: NotificationType.SWAP_REQUEST_UPDATED,
+            title: 'Swap request submitted',
+            message:
+              'Your swap request was sent and is pending peer acceptance.',
+            metadata: {
+              requestId: created.id,
+              shiftId,
+            },
+          },
+          {
+            userId: receiverId,
+            type: NotificationType.SWAP_REQUEST_UPDATED,
+            title: 'Swap request received',
+            message: 'A coworker requested a shift swap with you.',
+            metadata: {
+              requestId: created.id,
+              shiftId,
+            },
+          },
+        ]);
         return { request: created, locationId: shift.locationId };
       },
     );
@@ -133,7 +178,7 @@ export class SwapRequestsService {
     return request;
   }
 
-  async requestDrop(requesterId: string, shiftId: string) {
+  async requestDrop(requesterId: string, shiftId: string, actorId?: string) {
     const { request, locationId } = await this.prisma.db.$transaction(
       async (tx) => {
         await this.ensureCanCreateActiveRequest(tx, requesterId);
@@ -192,6 +237,28 @@ export class SwapRequestsService {
             expiresAt,
           },
         });
+
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.SWAP_REQUEST,
+          entityId: created.id,
+          action: AuditAction.CREATE,
+          actorId,
+          targetUserId: requesterId,
+          after: created,
+        });
+
+        await this.notificationsService.create(tx, {
+          userId: requesterId,
+          type: NotificationType.SWAP_REQUEST_UPDATED,
+          title: 'Drop request opened',
+          message:
+            'Your shift is now listed on the drop board until expiration.',
+          metadata: {
+            requestId: created.id,
+            shiftId,
+            expiresAt: expiresAt.toISOString(),
+          },
+        });
         return { request: created, locationId: shift.locationId };
       },
     );
@@ -202,7 +269,11 @@ export class SwapRequestsService {
     return request;
   }
 
-  async acceptRequest(requestId: string, actingStaffId: string) {
+  async acceptRequest(
+    requestId: string,
+    actingStaffId: string,
+    actorId?: string,
+  ) {
     const { request, locationId } = await this.prisma.db.$transaction(
       async (tx) => {
         const existing = await this.findRequestForUpdate(tx, requestId);
@@ -250,6 +321,38 @@ export class SwapRequestsService {
             acceptedAt: new Date(),
           },
         });
+
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.SWAP_REQUEST,
+          entityId: existing.id,
+          action: AuditAction.STATUS_CHANGE,
+          actorId,
+          targetUserId: existing.requesterId,
+          before: existing,
+          after: updated,
+        });
+
+        await this.notificationsService.createMany(tx, [
+          {
+            userId: existing.requesterId,
+            type: NotificationType.SWAP_REQUEST_UPDATED,
+            title: 'Swap/drop accepted',
+            message:
+              'Your request was accepted by a peer and awaits manager approval.',
+            metadata: {
+              requestId: existing.id,
+            },
+          },
+          {
+            userId: actingStaffId,
+            type: NotificationType.SWAP_REQUEST_UPDATED,
+            title: 'Request accepted',
+            message: 'You accepted this request. Waiting for manager approval.',
+            metadata: {
+              requestId: existing.id,
+            },
+          },
+        ]);
         return { request: updated, locationId: existing.shift.locationId };
       },
     );
@@ -258,7 +361,12 @@ export class SwapRequestsService {
     return request;
   }
 
-  async approveRequest(requestId: string, approve: boolean, reason?: string) {
+  async approveRequest(
+    requestId: string,
+    approve: boolean,
+    reason?: string,
+    actorId?: string,
+  ) {
     const result = await this.prisma.db.$transaction(async (tx) => {
       const existing = await this.findRequestForUpdate(tx, requestId);
 
@@ -277,6 +385,29 @@ export class SwapRequestsService {
             resolutionNote: reason?.trim() || 'Manager denied request',
           },
         });
+
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.SWAP_REQUEST,
+          entityId: existing.id,
+          action: AuditAction.STATUS_CHANGE,
+          actorId,
+          targetUserId: existing.requesterId,
+          before: existing,
+          after: cancelled,
+        });
+
+        const denialNotifications = [existing.requesterId, existing.receiverId]
+          .filter((id): id is string => Boolean(id))
+          .map((userId) => ({
+            userId,
+            type: NotificationType.SWAP_REQUEST_UPDATED,
+            title: 'Swap/drop denied',
+            message: reason?.trim() || 'A manager denied this request.',
+            metadata: {
+              requestId: existing.id,
+            },
+          }));
+        await this.notificationsService.createMany(tx, denialNotifications);
 
         return {
           request: cancelled,
@@ -352,6 +483,59 @@ export class SwapRequestsService {
         },
       });
 
+      await this.auditService.createLog(tx, {
+        entityType: AuditEntityType.ASSIGNMENT,
+        entityId: requesterAssignment.id,
+        action: AuditAction.SOFT_DELETE,
+        actorId,
+        targetUserId: existing.requesterId,
+        before: requesterAssignment,
+      });
+
+      await this.auditService.createLog(tx, {
+        entityType: AuditEntityType.ASSIGNMENT,
+        entityId: createdAssignment.id,
+        action: AuditAction.CREATE,
+        actorId,
+        targetUserId: existing.receiver.id,
+        after: createdAssignment,
+      });
+
+      await this.auditService.createLog(tx, {
+        entityType: AuditEntityType.SWAP_REQUEST,
+        entityId: existing.id,
+        action: AuditAction.STATUS_CHANGE,
+        actorId,
+        targetUserId: existing.requesterId,
+        before: existing,
+        after: approved,
+      });
+
+      await this.notificationsService.createMany(tx, [
+        {
+          userId: existing.requesterId,
+          type: NotificationType.SWAP_REQUEST_UPDATED,
+          title: 'Swap/drop approved',
+          message:
+            'Manager approved your request and assignment changes are live.',
+          metadata: {
+            requestId: existing.id,
+            shiftId: existing.shiftId,
+          },
+        },
+        {
+          userId: existing.receiver.id,
+          type: NotificationType.SHIFT_ASSIGNED,
+          title: 'Shift assigned from swap/drop',
+          message: 'You are now assigned after manager approval.',
+          metadata: {
+            requestId: existing.id,
+            shiftId: existing.shiftId,
+            assignmentId: createdAssignment.id,
+          },
+        },
+      ]);
+
       return {
         request: approved,
         approvalWarnings: evaluation.warnings,
@@ -380,7 +564,11 @@ export class SwapRequestsService {
     return result;
   }
 
-  async cancelByInitiator(requestId: string, requesterId: string) {
+  async cancelByInitiator(
+    requestId: string,
+    requesterId: string,
+    actorId?: string,
+  ) {
     const { request, locationId } = await this.prisma.db.$transaction(
       async (tx) => {
         const existing = await this.findRequestForUpdate(tx, requestId);
@@ -405,6 +593,33 @@ export class SwapRequestsService {
             resolutionNote: 'Initiator cancelled request',
           },
         });
+
+        await this.auditService.createLog(tx, {
+          entityType: AuditEntityType.SWAP_REQUEST,
+          entityId: existing.id,
+          action: AuditAction.STATUS_CHANGE,
+          actorId,
+          targetUserId: requesterId,
+          before: existing,
+          after: updated,
+        });
+
+        const impactedUsers = [
+          existing.requesterId,
+          existing.receiverId,
+        ].filter((id): id is string => Boolean(id));
+        await this.notificationsService.createMany(
+          tx,
+          impactedUsers.map((userId) => ({
+            userId,
+            type: NotificationType.SWAP_REQUEST_UPDATED,
+            title: 'Swap/drop cancelled',
+            message: 'This request was cancelled by the initiator.',
+            metadata: {
+              requestId: existing.id,
+            },
+          })),
+        );
         return { request: updated, locationId: existing.shift.locationId };
       },
     );
@@ -496,6 +711,35 @@ export class SwapRequestsService {
         },
       });
       if (request) {
+        await this.prisma.db.auditLog.create({
+          data: {
+            entityType: AuditEntityType.SWAP_REQUEST,
+            entityId: request.id,
+            action: AuditAction.STATUS_CHANGE,
+            targetUserId: request.requesterId,
+            diff: {
+              status: {
+                before: SwapStatus.PENDING,
+                after: SwapStatus.EXPIRED,
+              },
+            },
+          },
+        });
+
+        await this.prisma.db.notification.create({
+          data: {
+            userId: request.requesterId,
+            type: NotificationType.SWAP_REQUEST_UPDATED,
+            title: 'Drop request expired',
+            message:
+              'Your drop request expired 24 hours before shift start without being claimed.',
+            metadata: {
+              requestId: request.id,
+              shiftId: request.shiftId,
+            },
+          },
+        });
+
         this.realtimeService.emitSwapRequestUpdated(
           request.shift.locationId,
           request.id,
