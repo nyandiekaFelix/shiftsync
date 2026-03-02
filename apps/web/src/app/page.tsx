@@ -1,7 +1,14 @@
-import { User } from "@shiftsync/shared-types";
+import { User, Role, Skill } from "@shiftsync/shared-types";
 
 export default function Home() {
-  const dummyUser: User = { id: "1", name: "Admin User" };
+  const dummyUser: User = {
+    id: "1",
+    name: "Admin User",
+    email: "admin@shiftsync.com",
+    role: Role.ADMIN,
+    skills: [Skill.HOST],
+    certifiedLocations: []
+  };
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24">
