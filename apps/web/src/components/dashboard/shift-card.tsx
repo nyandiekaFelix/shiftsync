@@ -3,17 +3,24 @@
 import React from "react";
 import { Shift, ShiftStatus } from "@shiftsync/shared-types";
 import { Users } from "lucide-react";
-import { format } from "date-fns";
+import { formatTimeInTimeZone, getTimeZoneLabel } from "@/lib/timezone";
 
 interface ShiftCardProps {
   shift: Shift;
   onClick: (shift: Shift) => void;
+  timeZone: string;
 }
 
-export default function ShiftCard({ shift, onClick }: ShiftCardProps) {
+export default function ShiftCard({
+  shift,
+  onClick,
+  timeZone,
+}: ShiftCardProps) {
   const isPublished = shift.status === ShiftStatus.PUBLISHED;
   const assignedCount = shift.assignments?.length || 0;
   const isFullyStaffed = assignedCount >= shift.requiredHeadcount;
+  const timeLabel = formatTimeInTimeZone(shift.startTime, timeZone);
+  const zoneLabel = getTimeZoneLabel(timeZone);
 
   return (
     <div
@@ -35,7 +42,7 @@ export default function ShiftCard({ shift, onClick }: ShiftCardProps) {
           {shift.requiredSkill}
         </span>
         <span className="bg-black/20 px-1.5 py-0.5 rounded-md font-mono text-[9px]">
-          {format(new Date(shift.startTime), "HH:mm")}
+          {timeLabel} {zoneLabel}
         </span>
       </div>
 

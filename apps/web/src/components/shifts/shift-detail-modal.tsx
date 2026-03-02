@@ -7,6 +7,7 @@ import {
   ShiftStatus,
   AuthUser,
   Assignment,
+  ConstraintIssue,
 } from "@shiftsync/shared-types";
 import {
   X,
@@ -19,11 +20,11 @@ import {
   ChevronRight,
   Settings,
 } from "lucide-react";
-import { format } from "date-fns";
 import { shiftService } from "@/services/shift-service";
 import { toast } from "sonner";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { getTimeZoneLabel, toDateTimeLocalInTimeZone } from "@/lib/timezone";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -35,6 +36,9 @@ interface ShiftDetailModalProps {
   onSubmit: (shift: Partial<Shift>) => Promise<void>;
   onAssign: (userId: string) => Promise<void>;
   initialData?: Shift;
+  assignmentWarnings?: Record<string, ConstraintIssue[]>;
+  assignmentBlocks?: Record<string, ConstraintIssue[]>;
+  locationTimezone?: string;
 }
 
 type Tab = "details" | "staff";
@@ -45,6 +49,9 @@ export default function ShiftDetailModal({
   onSubmit,
   onAssign,
   initialData,
+  assignmentWarnings = {},
+  assignmentBlocks = {},
+  locationTimezone = "UTC",
 }: ShiftDetailModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>("details");
   const [formData, setFormData] = useState<Partial<Shift>>({});
@@ -84,8 +91,8 @@ export default function ShiftDetailModal({
         : new Date(start.getTime() + 8 * 60 * 60 * 1000);
 
       setFormData({
-        startTime: format(start, "yyyy-MM-dd'T'HH:mm"),
-        endTime: format(end, "yyyy-MM-dd'T'HH:mm"),
+        startTime: toDateTimeLocalInTimeZone(start, locationTimezone),
+        endTime: toDateTimeLocalInTimeZone(end, locationTimezone),
         requiredSkill: initialData?.requiredSkill || Skill.SERVER,
         requiredHeadcount: initialData?.requiredHeadcount || 1,
         status: initialData?.status || ShiftStatus.DRAFT,
@@ -98,7 +105,7 @@ export default function ShiftDetailModal({
         fetchStaff();
       }
     }
-  }, [isOpen, initialData, isEdit, fetchStaff]);
+  }, [isOpen, initialData, isEdit, fetchStaff, locationTimezone]);
 
   const handleDetailsSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -273,6 +280,12 @@ export default function ShiftDetailModal({
                   </div>
                 </div>
               </div>
+              <div className="text-xs text-gray-400">
+                Times are interpreted in location timezone:{" "}
+                <span className="text-white">
+                  {locationTimezone} ({getTimeZoneLabel(locationTimezone)})
+                </span>
+              </div>
 
               <div className="space-y-2">
                 <label className="text-sm font-medium text-gray-400 ml-1">
@@ -390,6 +403,8 @@ export default function ShiftDetailModal({
                 {filteredStaff.length > 0 ? (
                   filteredStaff.map((staff) => {
                     const isAssigned = assignedUserIds.includes(staff.id);
+                    const warnings = assignmentWarnings[staff.id] ?? [];
+                    const blocks = assignmentBlocks[staff.id] ?? [];
                     return (
                       <div
                         key={staff.id}
@@ -406,6 +421,20 @@ export default function ShiftDetailModal({
                             <div className="text-xs text-gray-500 font-medium">
                               {staff.email}
                             </div>
+                            {warnings.length > 0 && (
+                              <div className="mt-1 text-[10px] font-semibold text-amber-300">
+                                Warning:{" "}
+                                {warnings
+                                  .map((warning) => warning.message)
+                                  .join(" ")}
+                              </div>
+                            )}
+                            {blocks.length > 0 && (
+                              <div className="mt-1 text-[10px] font-semibold text-red-300">
+                                Blocked:{" "}
+                                {blocks.map((block) => block.message).join(" ")}
+                              </div>
+                            )}
                           </div>
                         </div>
                         {isAssigned ? (
@@ -416,7 +445,9 @@ export default function ShiftDetailModal({
                         ) : (
                           <button
                             onClick={() => handleAssign(staff.id)}
-                            disabled={assigningUserId === staff.id}
+                            disabled={
+                              assigningUserId === staff.id || blocks.length > 0
+                            }
                             className="p-3 rounded-xl bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-all disabled:opacity-50 shadow-sm active:scale-95"
                           >
                             {assigningUserId === staff.id ? (

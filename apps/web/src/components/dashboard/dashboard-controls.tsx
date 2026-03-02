@@ -12,6 +12,7 @@ interface DashboardControlsProps {
   selectedLocation: string;
   onLocationChange: (locationId: string) => void;
   locations: Location[];
+  selectedLocationTimezone?: string;
 }
 
 export default function DashboardControls({
@@ -20,6 +21,7 @@ export default function DashboardControls({
   selectedLocation,
   onLocationChange,
   locations,
+  selectedLocationTimezone,
 }: DashboardControlsProps) {
   return (
     <div className="flex flex-col lg:flex-row items-center justify-between bg-[#141111] border border-white/5 rounded-[2rem] p-5 shadow-2xl backdrop-blur-xl gap-6">
@@ -71,6 +73,12 @@ export default function DashboardControls({
             <ChevronRight size={16} className="rotate-90" />
           </div>
         </div>
+        {selectedLocationTimezone && (
+          <div className="text-[11px] text-gray-400 bg-[#0a0a0a] border border-white/5 px-3 py-2 rounded-xl">
+            Shift times shown in{" "}
+            <span className="text-white">{selectedLocationTimezone}</span>
+          </div>
+        )}
       </div>
     </div>
   );

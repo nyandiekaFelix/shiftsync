@@ -73,7 +73,11 @@ export class ShiftsController {
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: 'Assign staff to a shift' })
   assignStaff(@Param('id') id: string, @Body() assignStaffDto: AssignStaffDto) {
-    return this.assignmentsService.assignStaff(id, assignStaffDto.userId);
+    return this.assignmentsService.assignStaff(
+      id,
+      assignStaffDto.userId,
+      assignStaffDto.managerOverride?.reason,
+    );
   }
 
   @Delete(':id/assignments/:assignmentId')
