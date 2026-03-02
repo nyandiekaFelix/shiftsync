@@ -7,12 +7,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
-import { Shift, ShiftStatus } from '@shiftsync/shared-types';
+import { Shift, ShiftStatus, Role, AuthUser } from '@shiftsync/shared-types';
 import { parseShiftInputToUtc } from '../common/utils/timezone';
+import { RealtimeService } from '../realtime/realtime.service';
 
 @Injectable()
 export class ShiftsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private realtimeService: RealtimeService,
+  ) {}
 
   async create(createShiftDto: CreateShiftDto): Promise<Shift> {
     const { startTime, endTime, locationId, ...rest } = createShiftDto;
@@ -44,53 +48,101 @@ export class ShiftsService {
       },
     });
 
+    this.realtimeService.emitShiftUpdated(shift.locationId, shift.id);
     return shift as unknown as Shift;
   }
 
   async findAll(
-    locationId: string,
+    user: AuthUser,
+    locationId: string | undefined,
     startDate: string,
     endDate: string,
   ): Promise<Shift[]> {
-    const location = await this.prisma.db.location.findUnique({
-      where: { id: locationId },
-    });
-    if (!location || location.deletedAt) {
-      throw new NotFoundException(`Location with ID ${locationId} not found`);
-    }
+    const isStaff = user.role === Role.STAFF;
 
-    const rangeStart = parseShiftInputToUtc(
-      `${startDate}T00:00:00`,
-      location.timezone,
-    );
-    const rangeEnd = parseShiftInputToUtc(
-      `${endDate}T23:59:59`,
-      location.timezone,
-    );
-    if (!rangeStart || !rangeEnd) {
-      throw new BadRequestException('Invalid date range format');
-    }
+    if (locationId && locationId !== 'null' && locationId !== 'undefined') {
+      const location = await this.prisma.db.location.findUnique({
+        where: { id: locationId },
+      });
+      if (!location || location.deletedAt) {
+        throw new NotFoundException(`Location with ID ${locationId} not found`);
+      }
 
-    const shifts = await this.prisma.db.shift.findMany({
-      where: {
-        locationId,
-        startTime: {
-          gte: rangeStart,
+      const rangeStart = parseShiftInputToUtc(
+        `${startDate}T00:00:00`,
+        location.timezone,
+      );
+      const rangeEnd = parseShiftInputToUtc(
+        `${endDate}T23:59:59`,
+        location.timezone,
+      );
+      if (!rangeStart || !rangeEnd) {
+        throw new BadRequestException('Invalid date range format');
+      }
+
+      const shifts = await this.prisma.db.shift.findMany({
+        where: {
+          locationId,
+          startTime: {
+            gte: rangeStart,
+          },
+          endTime: {
+            lte: rangeEnd,
+          },
+          deletedAt: null,
         },
-        endTime: {
-          lte: rangeEnd,
+        include: {
+          assignments: true,
+          location: true,
         },
-        deletedAt: null,
-      },
-      include: {
-        assignments: true,
-      },
-      orderBy: {
-        startTime: 'asc',
-      },
-    });
+        orderBy: {
+          startTime: 'asc',
+        },
+      });
 
-    return shifts as unknown as Shift[];
+      return shifts as unknown as Shift[];
+    } else {
+      // If no locationId, only STAFF can fetch their own shifts
+      if (!isStaff) {
+        throw new BadRequestException(
+          'locationId is required for Managers and Admins',
+        );
+      }
+
+      const rangeStart = parseShiftInputToUtc(`${startDate}T00:00:00`, 'UTC');
+      const rangeEnd = parseShiftInputToUtc(`${endDate}T23:59:59`, 'UTC');
+
+      if (!rangeStart || !rangeEnd) {
+        throw new BadRequestException('Invalid date range format');
+      }
+
+      const shifts = await this.prisma.db.shift.findMany({
+        where: {
+          assignments: {
+            some: {
+              userId: user.id,
+              deletedAt: null,
+            },
+          },
+          startTime: {
+            gte: rangeStart,
+          },
+          endTime: {
+            lte: rangeEnd,
+          },
+          deletedAt: null,
+        },
+        include: {
+          assignments: true,
+          location: true,
+        },
+        orderBy: {
+          startTime: 'asc',
+        },
+      });
+
+      return shifts as unknown as Shift[];
+    }
   }
 
   async findOne(id: string): Promise<Shift> {
@@ -172,6 +224,7 @@ export class ShiftsService {
       where: { id },
       data,
     });
+    this.realtimeService.emitShiftUpdated(shift.locationId, shift.id);
     return shift as unknown as Shift;
   }
 
@@ -206,6 +259,23 @@ export class ShiftsService {
       throw new BadRequestException('Invalid date range format');
     }
 
+    const draftShiftIds = await this.prisma.db.shift.findMany({
+      where: {
+        locationId,
+        status: ShiftStatus.DRAFT,
+        startTime: {
+          gte: rangeStart,
+        },
+        endTime: {
+          lte: rangeEnd,
+        },
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
     const result = await this.prisma.db.shift.updateMany({
       where: {
         locationId,
@@ -223,6 +293,46 @@ export class ShiftsService {
       },
     });
 
+    draftShiftIds.forEach((shift) => {
+      this.realtimeService.emitSchedulePublished(locationId, shift.id);
+    });
+
     return result.count;
+  }
+
+  async getLiveShifts(locationId: string): Promise<Shift[]> {
+    const now = new Date();
+    const location = await this.prisma.db.location.findUnique({
+      where: { id: locationId },
+    });
+    if (!location || location.deletedAt) {
+      throw new NotFoundException(`Location with ID ${locationId} not found`);
+    }
+
+    const liveShifts = await this.prisma.db.shift.findMany({
+      where: {
+        locationId,
+        status: ShiftStatus.PUBLISHED,
+        startTime: {
+          lte: now,
+        },
+        endTime: {
+          gte: now,
+        },
+        deletedAt: null,
+      },
+      include: {
+        assignments: {
+          where: {
+            deletedAt: null,
+          },
+        },
+      },
+      orderBy: {
+        startTime: 'asc',
+      },
+    });
+
+    return liveShifts as unknown as Shift[];
   }
 }

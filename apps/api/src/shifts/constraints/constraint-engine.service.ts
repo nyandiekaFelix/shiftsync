@@ -93,6 +93,7 @@ export class ConstraintEngineService {
     const potentialStaff = await tx.user.findMany({
       where: {
         role: Role.STAFF,
+        deletedAt: null,
         id: { not: excludedUserId },
         skills: { has: shift.requiredSkill },
         certifiedLocations: { has: shift.locationId },
@@ -141,7 +142,13 @@ export class ConstraintEngineService {
     userId: string,
   ): Promise<AssignmentWithShift[]> {
     const assignments = await tx.assignment.findMany({
-      where: { userId },
+      where: {
+        userId,
+        deletedAt: null,
+        shift: {
+          deletedAt: null,
+        },
+      },
       include: {
         shift: {
           include: { location: true },
@@ -162,7 +169,7 @@ export class ConstraintEngineService {
     userId: string,
   ): Promise<Availability[]> {
     return tx.availability.findMany({
-      where: { userId },
+      where: { userId, deletedAt: null },
       orderBy: [{ type: 'desc' }, { dayOfWeek: 'asc' }],
     });
   }

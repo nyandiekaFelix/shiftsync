@@ -8,9 +8,13 @@ import {
   Delete,
   Query,
   UseGuards,
+  UseInterceptors,
+  Request,
 } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
 import { AssignmentsService } from './assignments.service';
+import { Request as ExpressRequest } from 'express';
+import { AuthUser } from '@shiftsync/shared-types';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { AssignStaffDto } from './dto/assign-staff.dto';
@@ -20,6 +24,11 @@ import { LocationAccessGuard } from '../auth/guards/location-access.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@shiftsync/shared-types';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { IdempotencyInterceptor } from '../common/idempotency/idempotency.interceptor';
+
+interface AuthenticatedRequest extends ExpressRequest {
+  user: AuthUser;
+}
 
 @ApiTags('shifts')
 @ApiBearerAuth()
@@ -34,6 +43,7 @@ export class ShiftsController {
   @Post()
   @Roles(Role.ADMIN, Role.MANAGER)
   @UseGuards(LocationAccessGuard)
+  @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Create a new shift' })
   create(@Body() createShiftDto: CreateShiftDto) {
     return this.shiftsService.create(createShiftDto);
@@ -45,8 +55,17 @@ export class ShiftsController {
     @Query('locationId') locationId: string,
     @Query('start') start: string,
     @Query('end') end: string,
+    @Request() req: AuthenticatedRequest,
   ) {
-    return this.shiftsService.findAll(locationId, start, end);
+    return this.shiftsService.findAll(req.user, locationId, start, end);
+  }
+
+  @Get('live')
+  @ApiOperation({
+    summary: 'Get currently active shifts for a location (On-Duty dashboard)',
+  })
+  getLiveShifts(@Query('locationId') locationId: string) {
+    return this.shiftsService.getLiveShifts(locationId);
   }
 
   @Get(':id')
@@ -57,6 +76,7 @@ export class ShiftsController {
 
   @Patch(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
+  @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Update a shift' })
   update(@Param('id') id: string, @Body() updateShiftDto: UpdateShiftDto) {
     return this.shiftsService.update(id, updateShiftDto);
@@ -71,6 +91,7 @@ export class ShiftsController {
 
   @Post(':id/assignments')
   @Roles(Role.ADMIN, Role.MANAGER)
+  @UseInterceptors(IdempotencyInterceptor)
   @ApiOperation({ summary: 'Assign staff to a shift' })
   assignStaff(@Param('id') id: string, @Body() assignStaffDto: AssignStaffDto) {
     return this.assignmentsService.assignStaff(

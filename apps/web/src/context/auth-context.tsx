@@ -11,6 +11,7 @@ import { useRouter } from "next/navigation";
 import { AuthUser, LoginCredentials } from "@shiftsync/shared-types";
 import { authService } from "@/services/auth-service";
 import { AUTH_ERROR_EVENT } from "@/services/api-client";
+import { closeRealtimeSocket } from "@/services/realtime-client";
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -34,6 +35,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch (err) {
         console.error("Logout failed:", err);
       } finally {
+        closeRealtimeSocket();
         setUser(null);
         // Add 'expired' param to break middleware redirect loops if a stale cookie persists
         const loginUrl = isExpired ? "/login?expired=1" : "/login";
