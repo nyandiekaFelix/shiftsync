@@ -6,11 +6,24 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+.pnpm-debug.log*
 
+# Dependencies
 node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Build and Outputs
 dist
 dist-ssr
-*.local
+out/
+build/
+*.tsbuildinfo
 
 # Editor directories and files
 .vscode/*
@@ -25,15 +38,14 @@ dist-ssr
 
 # Next.js
 .next/
-out/
-build/
 
 # NestJS
-dist/
+# (dist is already covered above)
 
 # Env
 .env
 .env.*
+.env.local
 !.env.example
 !.env.local.example
 
@@ -45,3 +57,4 @@ coverage
 
 # Misc
 .vercel
+*.pem
