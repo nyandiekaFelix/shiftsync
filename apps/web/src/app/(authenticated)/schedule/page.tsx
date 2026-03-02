@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/context/auth-context";
 import { shiftService } from "@/services/shift-service";
-import { Shift } from "@shiftsync/shared-types";
+import { Shift, ShiftSyncEvent } from "@shiftsync/shared-types";
 import {
   Clock,
   MapPin,
@@ -20,9 +20,10 @@ import {
   addWeeks,
   subWeeks,
 } from "date-fns";
+import { getRealtimeSocket } from "@/services/realtime-client";
 
 export default function StaffSchedule() {
-  useAuth();
+  const { user } = useAuth();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [shifts, setShifts] = useState<Shift[]>([]);
 
@@ -49,6 +50,40 @@ export default function StaffSchedule() {
       isMounted = false;
     };
   }, [currentDate]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const socket = getRealtimeSocket();
+    const refresh = async () => {
+      const start = format(startOfWeek(currentDate), "yyyy-MM-dd");
+      const end = format(endOfWeek(currentDate), "yyyy-MM-dd");
+      const data = await shiftService.findAll("", start, end);
+      setShifts(data.filter((s) => s.status === "PUBLISHED"));
+    };
+
+    user.certifiedLocations.forEach((locationId) => {
+      socket.emit("join.location", { locationId });
+    });
+
+    const onStaffAssignmentUpdated = () => {
+      refresh().catch((error) =>
+        console.error("Failed to refresh shifts after live update:", error),
+      );
+    };
+
+    socket.on(
+      ShiftSyncEvent.STAFF_ASSIGNMENT_UPDATED,
+      onStaffAssignmentUpdated,
+    );
+
+    return () => {
+      socket.off(
+        ShiftSyncEvent.STAFF_ASSIGNMENT_UPDATED,
+        onStaffAssignmentUpdated,
+      );
+    };
+  }, [user, currentDate]);
 
   const weekDays = eachDayOfInterval({
     start: startOfWeek(currentDate),

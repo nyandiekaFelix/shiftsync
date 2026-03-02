@@ -8,6 +8,8 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { ShiftsModule } from './shifts/shifts.module';
 import { LocationsModule } from './locations/locations.module';
+import { RedisModule } from './common/redis/redis.module';
+import { RealtimeModule } from './realtime/realtime.module';
 
 import { validate } from './common/configs/env.validation';
 
@@ -22,6 +24,8 @@ import { validate } from './common/configs/env.validation';
     }),
     HealthModule,
     PrismaModule,
+    RedisModule,
+    RealtimeModule,
     AuthModule,
     UsersModule,
     ShiftsModule,

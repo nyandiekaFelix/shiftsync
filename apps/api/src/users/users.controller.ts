@@ -52,6 +52,7 @@ export class UsersController {
   ) {
     const where: Prisma.UserWhereInput = {
       role: Role.STAFF as unknown as Prisma.EnumRoleFilter,
+      deletedAt: null,
     };
 
     if (locationId && locationId !== 'null' && locationId !== 'undefined') {
@@ -66,11 +67,6 @@ export class UsersController {
       };
     }
 
-    console.log(
-      '[UsersController] Fetching staff with where:',
-      JSON.stringify(where),
-    );
-
     const users = await this.prisma.db.user.findMany({
       where,
       select: {
@@ -83,7 +79,6 @@ export class UsersController {
       orderBy: { name: 'asc' },
     });
 
-    console.log(`[UsersController] Found ${users.length} staff members`);
     return users.map((user) => ({
       ...user,
       role: user.role as unknown as Role,

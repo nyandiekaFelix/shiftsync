@@ -154,3 +154,23 @@ export interface ConstraintViolationPayload {
   details: ConstraintIssue[];
   suggestions: AssignmentSuggestion[];
 }
+
+export enum ShiftSyncEvent {
+  SHIFT_UPDATED = "shift.updated",
+  SHIFT_ASSIGNMENT_CREATED = "shift.assignment.created",
+  SHIFT_ASSIGNMENT_REMOVED = "shift.assignment.removed",
+  SCHEDULE_PUBLISHED = "schedule.published",
+  STAFF_ASSIGNMENT_UPDATED = "staff.assignment.updated",
+}
+
+export interface ShiftRealtimeEvent {
+  event: ShiftSyncEvent;
+  shiftId: string;
+  locationId: string;
+  occurredAt: string;
+}
+
+export interface StaffAssignmentRealtimeEvent extends ShiftRealtimeEvent {
+  staffId: string;
+  assignmentId?: string;
+}

@@ -7,6 +7,14 @@ import {
 } from "@shiftsync/shared-types";
 import { apiClient } from "./api-client";
 
+const createIdempotencyKey = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `idem-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 export class ConstraintViolationError extends Error {
   readonly payload: ConstraintViolationPayload;
 
@@ -22,6 +30,9 @@ export const shiftService = {
     const response = await apiClient.fetch("/shifts", {
       method: "POST",
       body: JSON.stringify(shift),
+      headers: {
+        "Idempotency-Key": createIdempotencyKey(),
+      },
     });
 
     if (!response.ok) {
@@ -63,6 +74,9 @@ export const shiftService = {
     const response = await apiClient.fetch(`/shifts/${id}`, {
       method: "PATCH",
       body: JSON.stringify(shift),
+      headers: {
+        "Idempotency-Key": createIdempotencyKey(),
+      },
     });
 
     if (!response.ok) {
@@ -88,10 +102,21 @@ export const shiftService = {
   async assignStaff(
     shiftId: string,
     userId: string,
+    managerOverrideReason?: string,
   ): Promise<AssignStaffResponse> {
+    const payload: { userId: string; managerOverride?: { reason: string } } = {
+      userId,
+    };
+    if (managerOverrideReason?.trim()) {
+      payload.managerOverride = { reason: managerOverrideReason.trim() };
+    }
+
     const response = await apiClient.fetch(`/shifts/${shiftId}/assignments`, {
       method: "POST",
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify(payload),
+      headers: {
+        "Idempotency-Key": createIdempotencyKey(),
+      },
     });
 
     if (!response.ok) {
@@ -107,6 +132,9 @@ export const shiftService = {
         throw new ConstraintViolationError(
           errorData as ConstraintViolationPayload,
         );
+      }
+      if (response.status === 409) {
+        throw new Error("Conflict");
       }
       throw new Error(errorData.message || "Failed to assign staff");
     }
@@ -156,6 +184,17 @@ export const shiftService = {
 
     if (!response.ok) {
       throw new Error("Failed to fetch users");
+    }
+
+    return response.json();
+  },
+
+  async getLiveShifts(locationId: string): Promise<Shift[]> {
+    const params = new URLSearchParams({ locationId });
+    const response = await apiClient.fetch(`/shifts/live?${params.toString()}`);
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch live shifts");
     }
 
     return response.json();
