@@ -1,6 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { Role } from '@prisma/client';
-import { FairnessReport } from '@shiftsync/shared-types';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
+import { Role as PrismaRole } from '@prisma/client';
+import { AuthUser, FairnessReport, Role } from '@shiftsync/shared-types';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -10,6 +14,7 @@ export class FairnessService {
   async getReport(
     from: string,
     to: string,
+    actor?: AuthUser,
     locationId?: string,
   ): Promise<FairnessReport> {
     const rangeStart = new Date(`${from}T00:00:00.000Z`);
@@ -25,11 +30,27 @@ export class FairnessService {
     if (rangeStart > rangeEnd) {
       throw new BadRequestException('from date must be before to date');
     }
+    if (actor?.role === Role.MANAGER) {
+      if (!locationId) {
+        throw new ForbiddenException(
+          'Managers must provide a locationId for fairness reports',
+        );
+      }
+      const manager = await this.prisma.db.user.findUnique({
+        where: { id: actor.id },
+        select: { certifiedLocations: true },
+      });
+      if (!manager || !manager.certifiedLocations.includes(locationId)) {
+        throw new ForbiddenException(
+          `You are not authorized to access location: ${locationId}`,
+        );
+      }
+    }
 
     const [staff, assignments] = await Promise.all([
       this.prisma.db.user.findMany({
         where: {
-          role: Role.STAFF,
+          role: PrismaRole.STAFF,
           deletedAt: null,
           ...(locationId
             ? {

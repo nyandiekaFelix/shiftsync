@@ -1,6 +1,7 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Role } from '@shiftsync/shared-types';
+import { AuthUser, Role } from '@shiftsync/shared-types';
+import { Request as ExpressRequest } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RoleGuard } from '../auth/guards/role.guard';
@@ -20,7 +21,8 @@ export class FairnessController {
     @Query('from') from: string,
     @Query('to') to: string,
     @Query('locationId') locationId?: string,
+    @Request() req?: ExpressRequest & { user: AuthUser },
   ) {
-    return this.fairnessService.getReport(from, to, locationId);
+    return this.fairnessService.getReport(from, to, req?.user, locationId);
   }
 }

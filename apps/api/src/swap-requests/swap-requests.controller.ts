@@ -24,6 +24,7 @@ interface AuthenticatedRequest extends ExpressRequest {
   user: {
     id: string;
     role: Role;
+    certifiedLocations: string[];
   };
 }
 
@@ -82,6 +83,7 @@ export class SwapRequestsController {
       id,
       body.approve,
       body.reason,
+      req.user,
       req.user.id,
     );
   }
@@ -108,11 +110,11 @@ export class SwapRequestsController {
       if (req.user.role === Role.STAFF) {
         throw new ForbiddenException('Only managers/admins can view approvals');
       }
-      return this.swapRequestsService.listApprovalQueue();
+      return this.swapRequestsService.listApprovalQueue(req.user);
     }
 
     if (scope === 'drop-board') {
-      return this.swapRequestsService.listDropBoard();
+      return this.swapRequestsService.listDropBoard(req.user);
     }
 
     return this.swapRequestsService.listMyRequests(req.user.id);

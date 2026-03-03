@@ -1,10 +1,18 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { Role } from '@shiftsync/shared-types';
+import { AuthUser, Role } from '@shiftsync/shared-types';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RoleGuard } from '../auth/guards/role.guard';
 import { AuditService } from './audit.service';
+import { Request as ExpressRequest } from 'express';
 
 @ApiTags('audit-logs')
 @ApiBearerAuth()
@@ -22,6 +30,8 @@ export class AuditController {
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
+    @Query('locationId') locationId?: string,
+    @Request() req?: ExpressRequest & { user: AuthUser },
   ) {
     return this.auditService.list({
       shiftId,
@@ -29,6 +39,8 @@ export class AuditController {
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
       limit: limit ? Number(limit) : undefined,
+      locationId,
+      actor: req?.user,
     });
   }
 

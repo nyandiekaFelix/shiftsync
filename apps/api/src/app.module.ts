@@ -15,6 +15,7 @@ import { SwapRequestsModule } from './swap-requests/swap-requests.module';
 import { AuditModule } from './audit/audit.module';
 import { FairnessModule } from './fairness/fairness.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { AvailabilitiesModule } from './availabilities/availabilities.module';
 
 import { validate } from './common/configs/env.validation';
 
@@ -59,6 +60,7 @@ import { validate } from './common/configs/env.validation';
     AuditModule,
     FairnessModule,
     NotificationsModule,
+    AvailabilitiesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

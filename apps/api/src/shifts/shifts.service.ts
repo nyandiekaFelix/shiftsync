@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -9,12 +10,13 @@ import {
   AuditEntityType,
   NotificationType,
   Prisma,
+  ShiftStatus as PrismaShiftStatus,
   SwapRequestType,
   SwapStatus,
 } from '@prisma/client';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
-import { Shift, ShiftStatus, Role, AuthUser } from '@shiftsync/shared-types';
+import { Shift, Role, AuthUser } from '@shiftsync/shared-types';
 import { parseShiftInputToUtc } from '../common/utils/timezone';
 import { RealtimeService } from '../realtime/realtime.service';
 import { AuditService } from '../audit/audit.service';
@@ -59,7 +61,7 @@ export class ShiftsService {
           ...rest,
           startTime: start,
           endTime: end,
-          status: ShiftStatus.DRAFT,
+          status: PrismaShiftStatus.DRAFT,
         },
       });
 
@@ -93,6 +95,7 @@ export class ShiftsService {
       if (!location || location.deletedAt) {
         throw new NotFoundException(`Location with ID ${locationId} not found`);
       }
+      await this.assertUserCanAccessLocation(user, locationId);
 
       const rangeStart = parseShiftInputToUtc(
         `${startDate}T00:00:00`,
@@ -109,12 +112,8 @@ export class ShiftsService {
       const shifts = await this.prisma.db.shift.findMany({
         where: {
           locationId,
-          startTime: {
-            gte: rangeStart,
-          },
-          endTime: {
-            lte: rangeEnd,
-          },
+          startTime: { lt: rangeEnd },
+          endTime: { gt: rangeStart },
           deletedAt: null,
         },
         include: {
@@ -150,12 +149,8 @@ export class ShiftsService {
               deletedAt: null,
             },
           },
-          startTime: {
-            gte: rangeStart,
-          },
-          endTime: {
-            lte: rangeEnd,
-          },
+          startTime: { lt: rangeEnd },
+          endTime: { gt: rangeStart },
           deletedAt: null,
         },
         include: {
@@ -171,16 +166,28 @@ export class ShiftsService {
     }
   }
 
-  async findOne(id: string): Promise<Shift> {
+  async findOne(id: string, actor: AuthUser): Promise<Shift> {
     const shift = await this.prisma.db.shift.findUnique({
       where: { id },
       include: {
         assignments: true,
+        location: true,
       },
     });
 
     if (!shift || shift.deletedAt) {
       throw new NotFoundException(`Shift with ID ${id} not found`);
+    }
+
+    if (actor.role === Role.STAFF) {
+      const isAssigned = shift.assignments.some(
+        (assignment) => assignment.userId === actor.id && !assignment.deletedAt,
+      );
+      if (!isAssigned) {
+        throw new ForbiddenException('You can only view your own shifts');
+      }
+    } else {
+      await this.assertUserCanAccessLocation(actor, shift.locationId);
     }
 
     return shift as unknown as Shift;
@@ -189,6 +196,7 @@ export class ShiftsService {
   async update(
     id: string,
     updateShiftDto: UpdateShiftDto,
+    actor: AuthUser,
     actorId?: string,
   ): Promise<Shift> {
     const { startTime, endTime, ...rest } = updateShiftDto;
@@ -198,6 +206,16 @@ export class ShiftsService {
     });
     if (!existingShift || existingShift.deletedAt) {
       throw new NotFoundException(`Shift with ID ${id} not found`);
+    }
+    await this.assertUserCanAccessLocation(actor, existingShift.locationId);
+
+    if (
+      existingShift.status === PrismaShiftStatus.PUBLISHED &&
+      this.isWithinEditCutoff(existingShift.startTime)
+    ) {
+      throw new BadRequestException(
+        'Published schedules cannot be edited inside the cutoff window',
+      );
     }
 
     const data: Prisma.ShiftUpdateInput = {
@@ -268,6 +286,8 @@ export class ShiftsService {
           },
           select: {
             id: true,
+            requesterId: true,
+            receiverId: true,
           },
         });
 
@@ -321,6 +341,28 @@ export class ShiftsService {
           })),
         );
 
+        const cancelledSwapNotifications = activeSwapRequests.flatMap(
+          (request) =>
+            [request.requesterId, request.receiverId]
+              .filter((userId): userId is string => Boolean(userId))
+              .map((userId) => ({
+                userId,
+                type: NotificationType.SWAP_REQUEST_UPDATED,
+                title: 'Swap request cancelled',
+                message:
+                  'A pending swap was cancelled automatically because the shift was edited.',
+                metadata: {
+                  requestId: request.id,
+                  shiftId: id,
+                  locationId: updatedShift.locationId,
+                },
+              })),
+        );
+        await this.notificationsService.createMany(
+          tx,
+          cancelledSwapNotifications,
+        );
+
         return {
           shift: updatedShift,
           cancelledSwapRequests: activeSwapRequests,
@@ -336,13 +378,22 @@ export class ShiftsService {
     return shift as unknown as Shift;
   }
 
-  async remove(id: string, actorId?: string): Promise<void> {
+  async remove(id: string, actor: AuthUser, actorId?: string): Promise<void> {
     await this.prisma.db.$transaction(async (tx) => {
       const existingShift = await tx.shift.findUnique({
         where: { id },
       });
       if (!existingShift || existingShift.deletedAt) {
         throw new NotFoundException(`Shift with ID ${id} not found`);
+      }
+      await this.assertUserCanAccessLocation(actor, existingShift.locationId);
+      if (
+        existingShift.status === PrismaShiftStatus.PUBLISHED &&
+        this.isWithinEditCutoff(existingShift.startTime)
+      ) {
+        throw new BadRequestException(
+          'Published schedules cannot be edited inside the cutoff window',
+        );
       }
 
       const deletedShift = await tx.shift.update({
@@ -389,7 +440,7 @@ export class ShiftsService {
     const draftShiftIds = await this.prisma.db.shift.findMany({
       where: {
         locationId,
-        status: ShiftStatus.DRAFT,
+        status: PrismaShiftStatus.DRAFT,
         startTime: {
           gte: rangeStart,
         },
@@ -407,7 +458,7 @@ export class ShiftsService {
       const updated = await tx.shift.updateMany({
         where: {
           locationId,
-          status: ShiftStatus.DRAFT,
+          status: PrismaShiftStatus.DRAFT,
           startTime: {
             gte: rangeStart,
           },
@@ -417,7 +468,7 @@ export class ShiftsService {
           deletedAt: null,
         },
         data: {
-          status: ShiftStatus.PUBLISHED,
+          status: PrismaShiftStatus.PUBLISHED,
         },
       });
 
@@ -430,8 +481,8 @@ export class ShiftsService {
             actorId,
             diff: {
               status: {
-                before: ShiftStatus.DRAFT,
-                after: ShiftStatus.PUBLISHED,
+                before: PrismaShiftStatus.DRAFT,
+                after: PrismaShiftStatus.PUBLISHED,
               },
             },
           })),
@@ -479,7 +530,7 @@ export class ShiftsService {
     return result.count;
   }
 
-  async getLiveShifts(locationId: string): Promise<Shift[]> {
+  async getLiveShifts(locationId: string, actor: AuthUser): Promise<Shift[]> {
     const now = new Date();
     const location = await this.prisma.db.location.findUnique({
       where: { id: locationId },
@@ -487,11 +538,24 @@ export class ShiftsService {
     if (!location || location.deletedAt) {
       throw new NotFoundException(`Location with ID ${locationId} not found`);
     }
+    if (actor.role === Role.STAFF) {
+      const dbUser = await this.prisma.db.user.findUnique({
+        where: { id: actor.id },
+        select: { certifiedLocations: true },
+      });
+      if (!dbUser || !dbUser.certifiedLocations.includes(locationId)) {
+        throw new ForbiddenException(
+          `You are not authorized to access location: ${locationId}`,
+        );
+      }
+    } else {
+      await this.assertUserCanAccessLocation(actor, locationId);
+    }
 
     const liveShifts = await this.prisma.db.shift.findMany({
       where: {
         locationId,
-        status: ShiftStatus.PUBLISHED,
+        status: PrismaShiftStatus.PUBLISHED,
         startTime: {
           lte: now,
         },
@@ -513,5 +577,47 @@ export class ShiftsService {
     });
 
     return liveShifts as unknown as Shift[];
+  }
+
+  private getEditCutoffHours(): number {
+    const raw = process.env.SCHEDULE_EDIT_CUTOFF_HOURS;
+    const parsed = raw ? Number(raw) : 48;
+    if (Number.isNaN(parsed) || parsed < 0) {
+      return 48;
+    }
+    return parsed;
+  }
+
+  private isWithinEditCutoff(shiftStartTime: Date): boolean {
+    const cutoffMs = this.getEditCutoffHours() * 60 * 60 * 1000;
+    return Date.now() > shiftStartTime.getTime() - cutoffMs;
+  }
+
+  private async assertUserCanAccessLocation(
+    user: AuthUser,
+    locationId: string,
+  ): Promise<void> {
+    if (user.role === Role.ADMIN) {
+      return;
+    }
+
+    if (user.role === Role.STAFF) {
+      throw new ForbiddenException('Staff cannot manage locations');
+    }
+
+    const dbUser =
+      typeof this.prisma.db.user?.findUnique === 'function'
+        ? await this.prisma.db.user.findUnique({
+            where: { id: user.id },
+            select: { certifiedLocations: true },
+          })
+        : null;
+    const certifiedLocations =
+      dbUser?.certifiedLocations ?? user.certifiedLocations ?? [];
+    if (!certifiedLocations.includes(locationId)) {
+      throw new ForbiddenException(
+        `You are not authorized to access location: ${locationId}`,
+      );
+    }
   }
 }

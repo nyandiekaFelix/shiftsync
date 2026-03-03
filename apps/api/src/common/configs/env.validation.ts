@@ -41,6 +41,10 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   FRONTEND_URL?: string;
+
+  @IsNumber()
+  @IsOptional()
+  SCHEDULE_EDIT_CUTOFF_HOURS?: number;
 }
 
 export function validate(config: Record<string, unknown>) {

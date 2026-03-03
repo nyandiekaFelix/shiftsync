@@ -18,9 +18,11 @@ import { AuthUser } from '@shiftsync/shared-types';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
 import { AssignStaffDto } from './dto/assign-staff.dto';
+import { PreviewAssignmentDto } from './dto/preview-assignment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RoleGuard } from '../auth/guards/role.guard';
 import { LocationAccessGuard } from '../auth/guards/location-access.guard';
+import { LocationSource } from '../auth/decorators/location-source.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@shiftsync/shared-types';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -67,14 +69,17 @@ export class ShiftsController {
   @ApiOperation({
     summary: 'Get currently active shifts for a location (On-Duty dashboard)',
   })
-  getLiveShifts(@Query('locationId') locationId: string) {
-    return this.shiftsService.getLiveShifts(locationId);
+  getLiveShifts(
+    @Query('locationId') locationId: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.shiftsService.getLiveShifts(locationId, req.user);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get a single shift' })
-  findOne(@Param('id') id: string) {
-    return this.shiftsService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
+    return this.shiftsService.findOne(id, req.user);
   }
 
   @Patch(':id')
@@ -86,14 +91,14 @@ export class ShiftsController {
     @Body() updateShiftDto: UpdateShiftDto,
     @Request() req: AuthenticatedRequest,
   ) {
-    return this.shiftsService.update(id, updateShiftDto, req.user.id);
+    return this.shiftsService.update(id, updateShiftDto, req.user, req.user.id);
   }
 
   @Delete(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
   @ApiOperation({ summary: 'Soft delete a shift' })
   remove(@Param('id') id: string, @Request() req: AuthenticatedRequest) {
-    return this.shiftsService.remove(id, req.user.id);
+    return this.shiftsService.remove(id, req.user, req.user.id);
   }
 
   @Post(':id/assignments')
@@ -109,7 +114,25 @@ export class ShiftsController {
       id,
       assignStaffDto.userId,
       assignStaffDto.managerOverride?.reason,
+      req.user,
       req.user.id,
+    );
+  }
+
+  @Post(':id/assignments/preview')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  @ApiOperation({ summary: 'Preview assignment impact before confirming' })
+  previewAssignment(
+    @Param('id') id: string,
+    @Body() body: PreviewAssignmentDto,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    return this.assignmentsService.previewAssignment(
+      id,
+      body.userId,
+      req.user,
+      body.managerOverrideReason,
+      body.hourlyRate,
     );
   }
 
@@ -121,12 +144,18 @@ export class ShiftsController {
     @Param('assignmentId') assignmentId: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    return this.assignmentsService.unassignStaff(id, assignmentId, req.user.id);
+    return this.assignmentsService.unassignStaff(
+      id,
+      assignmentId,
+      req.user,
+      req.user.id,
+    );
   }
 
   @Post('publish')
   @Roles(Role.ADMIN, Role.MANAGER)
   @UseGuards(LocationAccessGuard)
+  @LocationSource('query')
   @ApiOperation({
     summary: 'Bulk publish shifts for a location and date range',
   })

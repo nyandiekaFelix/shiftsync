@@ -31,6 +31,11 @@ import {
   subWeeks,
 } from "date-fns";
 import { getRealtimeSocket } from "@/services/realtime-client";
+import {
+  formatTimeInTimeZone,
+  getTimeZoneLabel,
+  toDateKeyInTimeZone,
+} from "@/lib/timezone";
 
 export default function StaffSchedule() {
   const { user } = useAuth();
@@ -136,12 +141,24 @@ export default function StaffSchedule() {
         ),
       );
     };
+    const onShiftUpdated = () => {
+      refresh().catch((error) =>
+        console.error("Failed to refresh schedule after shift update:", error),
+      );
+    };
+    const onSchedulePublished = () => {
+      refresh().catch((error) =>
+        console.error("Failed to refresh schedule after publish event:", error),
+      );
+    };
 
     socket.on(
       ShiftSyncEvent.STAFF_ASSIGNMENT_UPDATED,
       onStaffAssignmentUpdated,
     );
     socket.on(ShiftSyncEvent.SWAP_REQUEST_UPDATED, onSwapRequestUpdated);
+    socket.on(ShiftSyncEvent.SHIFT_UPDATED, onShiftUpdated);
+    socket.on(ShiftSyncEvent.SCHEDULE_PUBLISHED, onSchedulePublished);
 
     return () => {
       socket.off(
@@ -149,6 +166,8 @@ export default function StaffSchedule() {
         onStaffAssignmentUpdated,
       );
       socket.off(ShiftSyncEvent.SWAP_REQUEST_UPDATED, onSwapRequestUpdated);
+      socket.off(ShiftSyncEvent.SHIFT_UPDATED, onShiftUpdated);
+      socket.off(ShiftSyncEvent.SCHEDULE_PUBLISHED, onSchedulePublished);
     };
   }, [user, currentDate]);
 
@@ -237,8 +256,13 @@ export default function StaffSchedule() {
 
       <div className="space-y-6">
         {weekDays.map((day) => {
-          const dayShifts = shifts.filter((s) =>
-            isSameDay(new Date(s.startTime), day),
+          const dayKey = format(day, "yyyy-MM-dd");
+          const dayShifts = shifts.filter(
+            (s) =>
+              toDateKeyInTimeZone(
+                s.startTime,
+                s.location?.timezone ?? "UTC",
+              ) === dayKey,
           );
           const isToday = isSameDay(day, new Date());
 
@@ -296,15 +320,27 @@ export default function StaffSchedule() {
                           </div>
                           <div className="text-white">
                             <div className="font-medium">
-                              {format(new Date(shift.startTime), "HH:mm")} -{" "}
-                              {format(new Date(shift.endTime), "HH:mm")}
+                              {formatTimeInTimeZone(
+                                shift.startTime,
+                                shift.location?.timezone ?? "UTC",
+                              )}{" "}
+                              -{" "}
+                              {formatTimeInTimeZone(
+                                shift.endTime,
+                                shift.location?.timezone ?? "UTC",
+                              )}{" "}
+                              {getTimeZoneLabel(
+                                shift.location?.timezone ?? "UTC",
+                              )}
                             </div>
                             <div className="text-xs text-gray-500 flex items-center gap-1">
                               <Briefcase size={12} />
                               <span>{shift.requiredSkill}</span>
                               <span className="mx-1">•</span>
                               <MapPin size={12} />
-                              <span>{shift.locationId}</span>
+                              <span>
+                                {shift.location?.name ?? shift.locationId}
+                              </span>
                             </div>
                           </div>
                         </div>

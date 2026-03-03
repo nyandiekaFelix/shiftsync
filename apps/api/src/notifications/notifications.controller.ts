@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Request,
@@ -11,6 +13,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
+import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 
 interface AuthenticatedRequest extends ExpressRequest {
   user: {
@@ -49,5 +52,23 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Mark all notifications as read' })
   markAllRead(@Request() req: AuthenticatedRequest) {
     return this.notificationsService.markAllRead(req.user.id);
+  }
+
+  @Get('preferences')
+  @ApiOperation({ summary: 'Get notification delivery preferences' })
+  getPreferences(@Request() req: AuthenticatedRequest) {
+    return this.notificationsService.getPreferences(req.user.id);
+  }
+
+  @Patch('preferences')
+  @ApiOperation({ summary: 'Update notification delivery preferences' })
+  updatePreferences(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: UpdateNotificationPreferencesDto,
+  ) {
+    return this.notificationsService.updatePreferences(req.user.id, {
+      inApp: body.inApp,
+      emailSimulation: body.emailSimulation,
+    });
   }
 }

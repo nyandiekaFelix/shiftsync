@@ -3,9 +3,15 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { AssignStaffResponse, Assignment } from '@shiftsync/shared-types';
+import {
+  AssignStaffResponse,
+  Assignment,
+  AuthUser,
+  Role,
+} from '@shiftsync/shared-types';
 import { ConstraintEngineService } from './constraints/constraint-engine.service';
 import { ConstraintViolationException } from './constraints/constraint-violation.exception';
 import { RedisLockService } from '../common/redis/redis-lock.service';
@@ -29,6 +35,7 @@ export class AssignmentsService {
     shiftId: string,
     userId: string,
     managerOverrideReason?: string,
+    actor?: AuthUser,
     actorId?: string,
   ): Promise<AssignStaffResponse> {
     const lock = await this.redisLockService.acquire(
@@ -59,6 +66,9 @@ export class AssignmentsService {
 
         if (!shift || shift.deletedAt) {
           throw new NotFoundException(`Shift with ID ${shiftId} not found`);
+        }
+        if (actor) {
+          await this.assertUserCanAccessLocation(tx, actor, shift.locationId);
         }
 
         const user = await tx.user.findUnique({
@@ -166,9 +176,68 @@ export class AssignmentsService {
     }
   }
 
+  async previewAssignment(
+    shiftId: string,
+    userId: string,
+    actor?: AuthUser,
+    managerOverrideReason?: string,
+    hourlyRate = 20,
+  ): Promise<{
+    blocks: unknown[];
+    warnings: unknown[];
+    suggestions: unknown[];
+    overtimeCostImpact: number;
+  }> {
+    return this.prisma.db.$transaction(async (tx) => {
+      const shift = await tx.shift.findUnique({
+        where: { id: shiftId },
+        include: {
+          location: true,
+          assignments: {
+            where: {
+              deletedAt: null,
+            },
+          },
+        },
+      });
+      if (!shift || shift.deletedAt) {
+        throw new NotFoundException(`Shift with ID ${shiftId} not found`);
+      }
+      if (actor) {
+        await this.assertUserCanAccessLocation(tx, actor, shift.locationId);
+      }
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+      });
+      if (!user || user.deletedAt) {
+        throw new NotFoundException(`User with ID ${userId} not found`);
+      }
+
+      const evaluation = await this.constraintEngine.evaluate(tx, {
+        shift,
+        user,
+        managerOverrideReason,
+      });
+
+      const overtimeHours = evaluation.warnings.reduce((total, warning) => {
+        const meta = warning.meta as { overtimeHours?: number } | undefined;
+        return total + (meta?.overtimeHours ?? 0);
+      }, 0);
+
+      return {
+        blocks: evaluation.blocks,
+        warnings: evaluation.warnings,
+        suggestions: evaluation.suggestions,
+        overtimeCostImpact: Number((overtimeHours * hourlyRate).toFixed(2)),
+      };
+    });
+  }
+
   async unassignStaff(
     shiftId: string,
     assignmentId: string,
+    actor?: AuthUser,
     actorId?: string,
   ): Promise<void> {
     const existingAssignment = await this.prisma.db.assignment.findFirst({
@@ -190,6 +259,13 @@ export class AssignmentsService {
 
     try {
       await this.prisma.db.$transaction(async (tx) => {
+        if (actor) {
+          await this.assertUserCanAccessLocation(
+            tx,
+            actor,
+            existingAssignment.shift.locationId,
+          );
+        }
         const updated = await tx.assignment.update({
           where: { id: assignmentId, shiftId },
           data: { deletedAt: new Date() },
@@ -236,5 +312,28 @@ export class AssignmentsService {
       include: { user: true },
     });
     return assignments as unknown as Assignment[];
+  }
+
+  private async assertUserCanAccessLocation(
+    tx: Parameters<Parameters<PrismaService['db']['$transaction']>[0]>[0],
+    user: AuthUser,
+    locationId: string,
+  ): Promise<void> {
+    if (user.role === Role.ADMIN) {
+      return;
+    }
+    if (user.role === Role.STAFF) {
+      throw new ForbiddenException('Staff cannot manage locations');
+    }
+
+    const dbUser = await tx.user.findUnique({
+      where: { id: user.id },
+      select: { certifiedLocations: true },
+    });
+    if (!dbUser || !dbUser.certifiedLocations.includes(locationId)) {
+      throw new ForbiddenException(
+        `You are not authorized to access location: ${locationId}`,
+      );
+    }
   }
 }

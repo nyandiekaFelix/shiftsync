@@ -25,6 +25,7 @@ export const analyticsService = {
   async getAuditLogs(filters: {
     shiftId?: string;
     userId?: string;
+    locationId?: string;
     from?: string;
     to?: string;
     limit?: number;
@@ -32,6 +33,7 @@ export const analyticsService = {
     const params = new URLSearchParams();
     if (filters.shiftId) params.set("shiftId", filters.shiftId);
     if (filters.userId) params.set("userId", filters.userId);
+    if (filters.locationId) params.set("locationId", filters.locationId);
     if (filters.from) params.set("from", filters.from);
     if (filters.to) params.set("to", filters.to);
     if (filters.limit) params.set("limit", String(filters.limit));
