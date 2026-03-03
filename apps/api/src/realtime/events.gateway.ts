@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from '@shiftsync/shared-types';
 import { Server, Socket } from 'socket.io';
+import { getAllowedOrigins } from '../common/cors/cors.config';
 
 interface SocketUser {
   id: string;
@@ -20,7 +21,7 @@ interface SocketUser {
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: getAllowedOrigins(),
     credentials: true,
   },
 })

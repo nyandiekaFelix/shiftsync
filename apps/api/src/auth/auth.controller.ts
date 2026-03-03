@@ -39,12 +39,14 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResponse> {
     const result = await this.authService.login(req.user);
+    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const cookieSameSite: 'none' | 'lax' = isProduction ? 'none' : 'lax';
 
     // Set cookie
     res.cookie('access_token', result.access_token, {
       httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
+      secure: isProduction,
+      sameSite: cookieSameSite,
       maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       path: '/',
     });
@@ -56,7 +58,14 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'User logout' })
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('access_token', { path: '/' });
+    const isProduction = this.configService.get('NODE_ENV') === 'production';
+    const cookieSameSite: 'none' | 'lax' = isProduction ? 'none' : 'lax';
+
+    res.clearCookie('access_token', {
+      path: '/',
+      secure: isProduction,
+      sameSite: cookieSameSite,
+    });
     return { message: 'Logged out successfully' };
   }
 }
