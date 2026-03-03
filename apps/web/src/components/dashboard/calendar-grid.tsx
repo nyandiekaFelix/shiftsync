@@ -13,6 +13,7 @@ import {
 } from "date-fns";
 import { Plus } from "lucide-react";
 import ShiftCard from "./shift-card";
+import { toDateKeyInTimeZone } from "@/lib/timezone";
 
 interface CalendarGridProps {
   currentDate: Date;
@@ -55,8 +56,9 @@ export default function CalendarGrid({
         ))}
 
         {days.map((day) => {
-          const dayShifts = shifts.filter((s) =>
-            isSameDay(new Date(s.startTime), day),
+          const dayKey = toDateKeyInTimeZone(day, timeZone);
+          const dayShifts = shifts.filter(
+            (s) => toDateKeyInTimeZone(s.startTime, timeZone) === dayKey,
           );
           const isToday = isSameDay(day, new Date());
           const isPast = day < new Date() && !isToday;

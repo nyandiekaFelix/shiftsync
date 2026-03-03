@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 type TxClient = Parameters<
@@ -13,11 +13,26 @@ export interface CreateNotificationInput {
   metadata?: Prisma.InputJsonValue;
 }
 
+export interface NotificationPreferences {
+  inApp: boolean;
+  emailSimulation: boolean;
+}
+
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(tx: TxClient, input: CreateNotificationInput) {
+    const preferences = await this.getPreferencesTx(tx, input.userId);
+    if (preferences.emailSimulation) {
+      this.simulateEmail(input.userId, input.title, input.message);
+    }
+    if (!preferences.inApp) {
+      return null;
+    }
+
     return tx.notification.create({
       data: {
         userId: input.userId,
@@ -34,8 +49,23 @@ export class NotificationsService {
       return;
     }
 
+    const filtered: CreateNotificationInput[] = [];
+    for (const item of notifications) {
+      const preferences = await this.getPreferencesTx(tx, item.userId);
+      if (preferences.emailSimulation) {
+        this.simulateEmail(item.userId, item.title, item.message);
+      }
+      if (preferences.inApp) {
+        filtered.push(item);
+      }
+    }
+
+    if (filtered.length === 0) {
+      return;
+    }
+
     await tx.notification.createMany({
-      data: notifications.map((item) => ({
+      data: filtered.map((item) => ({
         userId: item.userId,
         type: item.type,
         title: item.title,
@@ -86,5 +116,75 @@ export class NotificationsService {
     });
 
     return { count: result.count };
+  }
+
+  async getPreferences(userId: string): Promise<NotificationPreferences> {
+    return this.getPreferencesTx(this.prisma.db, userId);
+  }
+
+  async updatePreferences(
+    userId: string,
+    preferences: Partial<NotificationPreferences>,
+  ): Promise<NotificationPreferences> {
+    const current = await this.getPreferences(userId);
+    const next: NotificationPreferences = {
+      inApp: preferences.inApp ?? current.inApp,
+      emailSimulation: preferences.emailSimulation ?? current.emailSimulation,
+    };
+
+    await this.prisma.db.$executeRaw`
+      INSERT INTO notification_preferences (user_id, in_app, email_simulation, updated_at)
+      VALUES (${userId}::uuid, ${next.inApp}, ${next.emailSimulation}, NOW())
+      ON CONFLICT (user_id) DO UPDATE
+      SET
+        in_app = EXCLUDED.in_app,
+        email_simulation = EXCLUDED.email_simulation,
+        updated_at = NOW()
+    `;
+
+    return next;
+  }
+
+  private async getPreferencesTx(
+    tx: TxClient | PrismaService['db'],
+    userId: string,
+  ): Promise<NotificationPreferences> {
+    let rows: Array<{ in_app: boolean; email_simulation: boolean }> = [];
+    try {
+      rows = (await tx.$queryRaw<
+        {
+          in_app: boolean;
+          email_simulation: boolean;
+        }[]
+      >`
+        SELECT in_app, email_simulation
+        FROM notification_preferences
+        WHERE user_id = ${userId}::uuid
+        LIMIT 1
+      `) as Array<{ in_app: boolean; email_simulation: boolean }>;
+    } catch {
+      return {
+        inApp: true,
+        emailSimulation: false,
+      };
+    }
+
+    if (rows.length === 0) {
+      return {
+        inApp: true,
+        emailSimulation: false,
+      };
+    }
+
+    return {
+      inApp: rows[0].in_app,
+      emailSimulation: rows[0].email_simulation,
+    };
+  }
+
+  private simulateEmail(userId: string, title: string, message: string): void {
+    this.logger.log(
+      `[EMAIL_SIMULATION] user=${userId} title="${title}" message="${message}"`,
+    );
   }
 }

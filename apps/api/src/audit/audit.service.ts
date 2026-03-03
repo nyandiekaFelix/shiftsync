@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { AuditAction, AuditEntityType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthUser, Role } from '@shiftsync/shared-types';
 
 type JsonObject = Record<string, unknown>;
 type TxClient = Parameters<
@@ -23,6 +24,8 @@ export interface AuditLogQueryInput {
   from?: Date;
   to?: Date;
   limit?: number;
+  locationId?: string;
+  actor?: AuthUser;
 }
 
 @Injectable()
@@ -49,6 +52,23 @@ export class AuditService {
   }
 
   async list(input: AuditLogQueryInput) {
+    if (input.actor?.role === Role.MANAGER) {
+      if (!input.locationId) {
+        throw new ForbiddenException(
+          'Managers must provide a locationId when listing audit logs',
+        );
+      }
+      const manager = await this.prisma.db.user.findUnique({
+        where: { id: input.actor.id },
+        select: { certifiedLocations: true },
+      });
+      if (!manager || !manager.certifiedLocations.includes(input.locationId)) {
+        throw new ForbiddenException(
+          `You are not authorized to access location: ${input.locationId}`,
+        );
+      }
+    }
+
     const limit = Math.min(Math.max(input.limit ?? 200, 1), 5000);
     const createdAtFilter: { gte?: Date; lte?: Date } = {};
     if (input.from) {
@@ -58,7 +78,7 @@ export class AuditService {
       createdAtFilter.lte = input.to;
     }
 
-    return this.prisma.db.auditLog.findMany({
+    const logs = await this.prisma.db.auditLog.findMany({
       where: {
         ...(input.shiftId
           ? {
@@ -77,6 +97,67 @@ export class AuditService {
       },
       orderBy: [{ createdAt: 'desc' }],
       take: limit,
+    });
+
+    if (!input.locationId) {
+      return logs;
+    }
+
+    const shiftLogIds = logs
+      .filter((log) => log.entityType === AuditEntityType.SHIFT)
+      .map((log) => log.entityId);
+    const assignmentLogIds = logs
+      .filter((log) => log.entityType === AuditEntityType.ASSIGNMENT)
+      .map((log) => log.entityId);
+    const swapLogIds = logs
+      .filter((log) => log.entityType === AuditEntityType.SWAP_REQUEST)
+      .map((log) => log.entityId);
+
+    const [shifts, assignments, swaps] = await Promise.all([
+      shiftLogIds.length
+        ? this.prisma.db.shift.findMany({
+            where: {
+              id: { in: shiftLogIds },
+              locationId: input.locationId,
+            },
+            select: { id: true },
+          })
+        : Promise.resolve<Array<{ id: string }>>([]),
+      assignmentLogIds.length
+        ? this.prisma.db.assignment.findMany({
+            where: {
+              id: { in: assignmentLogIds },
+              shift: { locationId: input.locationId },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve<Array<{ id: string }>>([]),
+      swapLogIds.length
+        ? this.prisma.db.swapRequest.findMany({
+            where: {
+              id: { in: swapLogIds },
+              shift: { locationId: input.locationId },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve<Array<{ id: string }>>([]),
+    ]);
+
+    const allowedShiftIds = new Set(shifts.map((item) => item.id));
+    const allowedAssignmentIds = new Set(assignments.map((item) => item.id));
+    const allowedSwapIds = new Set(swaps.map((item) => item.id));
+
+    return logs.filter((log) => {
+      if (log.entityType === AuditEntityType.SHIFT) {
+        return allowedShiftIds.has(log.entityId);
+      }
+      if (log.entityType === AuditEntityType.ASSIGNMENT) {
+        return allowedAssignmentIds.has(log.entityId);
+      }
+      if (log.entityType === AuditEntityType.SWAP_REQUEST) {
+        return allowedSwapIds.has(log.entityId);
+      }
+      return false;
     });
   }
 

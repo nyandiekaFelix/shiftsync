@@ -28,6 +28,7 @@ import CalendarGrid from "@/components/dashboard/calendar-grid";
 import ShiftDetailModal from "@/components/shifts/shift-detail-modal";
 import { getRealtimeSocket } from "@/services/realtime-client";
 import { analyticsService } from "@/services/analytics-service";
+import { formatTimeInTimeZone } from "@/lib/timezone";
 
 export default function ManagerDashboard() {
   const { user } = useAuth();
@@ -134,6 +135,7 @@ export default function ManagerDashboard() {
       const from = format(startOfMonth(currentDate), "yyyy-MM-dd");
       const to = format(endOfMonth(currentDate), "yyyy-MM-dd");
       const logs = await analyticsService.getAuditLogs({
+        locationId: selectedLocation,
         from: `${from}T00:00:00.000Z`,
         to: `${to}T23:59:59.999Z`,
         limit: 200,
@@ -144,7 +146,7 @@ export default function ManagerDashboard() {
     } finally {
       setIsAuditLoading(false);
     }
-  }, [currentDate, user]);
+  }, [currentDate, selectedLocation, user]);
 
   useEffect(() => {
     const initLocations = async () => {
@@ -477,9 +479,16 @@ export default function ManagerDashboard() {
               >
                 <div className="font-medium">{shift.requiredSkill}</div>
                 <div className="text-xs text-gray-400">
-                  {format(new Date(shift.startTime), "HH:mm")} -{" "}
-                  {format(new Date(shift.endTime), "HH:mm")} •{" "}
-                  {shift.assignments?.length ?? 0}/{shift.requiredHeadcount}{" "}
+                  {formatTimeInTimeZone(
+                    shift.startTime,
+                    selectedLocationTimezone,
+                  )}{" "}
+                  -{" "}
+                  {formatTimeInTimeZone(
+                    shift.endTime,
+                    selectedLocationTimezone,
+                  )}{" "}
+                  • {shift.assignments?.length ?? 0}/{shift.requiredHeadcount}{" "}
                   assigned
                 </div>
               </li>

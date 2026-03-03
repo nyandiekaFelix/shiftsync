@@ -143,6 +143,37 @@ export const shiftService = {
     return response.json();
   },
 
+  async previewAssignment(
+    shiftId: string,
+    userId: string,
+    managerOverrideReason?: string,
+    hourlyRate?: number,
+  ): Promise<{
+    blocks: unknown[];
+    warnings: unknown[];
+    suggestions: { userId: string; name: string }[];
+    overtimeCostImpact: number;
+  }> {
+    const response = await apiClient.fetch(
+      `/shifts/${shiftId}/assignments/preview`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          userId,
+          managerOverrideReason,
+          hourlyRate,
+        }),
+      },
+    );
+    if (!response.ok) {
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: "Failed to preview assignment" }));
+      throw new Error(errorData.message || "Failed to preview assignment");
+    }
+    return response.json();
+  },
+
   async unassignStaff(shiftId: string, assignmentId: string): Promise<void> {
     const response = await apiClient.fetch(
       `/shifts/${shiftId}/assignments/${assignmentId}`,

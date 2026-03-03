@@ -38,4 +38,32 @@ export const notificationService = {
       throw new Error("Failed to mark notifications as read");
     }
   },
+
+  async getPreferences(): Promise<{
+    inApp: boolean;
+    emailSimulation: boolean;
+  }> {
+    const response = await apiClient.fetch("/notifications/preferences");
+    if (!response.ok) {
+      throw new Error("Failed to fetch notification preferences");
+    }
+    return response.json();
+  },
+
+  async updatePreferences(input: {
+    inApp?: boolean;
+    emailSimulation?: boolean;
+  }): Promise<{
+    inApp: boolean;
+    emailSimulation: boolean;
+  }> {
+    const response = await apiClient.fetch("/notifications/preferences", {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      throw new Error("Failed to update notification preferences");
+    }
+    return response.json();
+  },
 };

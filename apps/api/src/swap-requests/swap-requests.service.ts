@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -25,6 +26,13 @@ import {
   EXPIRE_DROP_JOB,
   SWAP_REQUESTS_QUEUE,
 } from './swap-requests.constants';
+import { Role as SharedRole } from '@shiftsync/shared-types';
+
+type ActorContext = {
+  id: string;
+  role: SharedRole;
+  certifiedLocations?: string[];
+};
 
 const ACTIVE_STATUSES: SwapStatus[] = [
   SwapStatus.PENDING,
@@ -365,10 +373,18 @@ export class SwapRequestsService {
     requestId: string,
     approve: boolean,
     reason?: string,
+    actor?: ActorContext,
     actorId?: string,
   ) {
     const result = await this.prisma.db.$transaction(async (tx) => {
       const existing = await this.findRequestForUpdate(tx, requestId);
+      if (actor) {
+        await this.assertActorCanReviewLocation(
+          tx,
+          actor,
+          existing.shift.locationId,
+        );
+      }
 
       if (existing.status !== SwapStatus.ACCEPTED_BY_PEER) {
         throw new BadRequestException(
@@ -643,9 +659,11 @@ export class SwapRequestsService {
     });
   }
 
-  async listApprovalQueue() {
+  async listApprovalQueue(actor: ActorContext) {
+    const where = await this.buildScopedApprovalWhere(actor);
     return this.prisma.db.swapRequest.findMany({
       where: {
+        ...where,
         deletedAt: null,
         status: SwapStatus.ACCEPTED_BY_PEER,
       },
@@ -662,12 +680,37 @@ export class SwapRequestsService {
     });
   }
 
-  async listDropBoard() {
+  async listDropBoard(actor: ActorContext) {
+    const where: Prisma.SwapRequestWhereInput = {
+      deletedAt: null,
+      type: SwapRequestType.DROP,
+      status: SwapStatus.PENDING,
+    };
+
+    if (actor.role === SharedRole.STAFF) {
+      const staff = await this.prisma.db.user.findUnique({
+        where: { id: actor.id },
+        select: { skills: true, certifiedLocations: true },
+      });
+      if (!staff) {
+        return [];
+      }
+
+      where.shift = {
+        requiredSkill: { in: staff.skills },
+        locationId: { in: staff.certifiedLocations },
+        assignments: {
+          none: {
+            userId: actor.id,
+            deletedAt: null,
+          },
+        },
+      };
+    }
+
     return this.prisma.db.swapRequest.findMany({
       where: {
-        deletedAt: null,
-        type: SwapRequestType.DROP,
-        status: SwapStatus.PENDING,
+        ...where,
       },
       include: {
         requester: true,
@@ -850,5 +893,55 @@ export class SwapRequestsService {
         'Staff member is not certified for this shift location',
       );
     }
+  }
+
+  private async assertActorCanReviewLocation(
+    tx: TxClient,
+    actor: ActorContext,
+    locationId: string,
+  ): Promise<void> {
+    if (actor.role === SharedRole.ADMIN) {
+      return;
+    }
+    if (actor.role !== SharedRole.MANAGER) {
+      throw new ForbiddenException('Only managers/admins can review requests');
+    }
+
+    const dbUser = await tx.user.findUnique({
+      where: { id: actor.id },
+      select: { certifiedLocations: true },
+    });
+    if (!dbUser || !dbUser.certifiedLocations.includes(locationId)) {
+      throw new ForbiddenException(
+        `You are not authorized to access location: ${locationId}`,
+      );
+    }
+  }
+
+  private async buildScopedApprovalWhere(
+    actor: ActorContext,
+  ): Promise<Prisma.SwapRequestWhereInput> {
+    if (actor.role === SharedRole.ADMIN) {
+      return {};
+    }
+    if (actor.role !== SharedRole.MANAGER) {
+      throw new ForbiddenException('Only managers/admins can view approvals');
+    }
+
+    const manager = await this.prisma.db.user.findUnique({
+      where: { id: actor.id },
+      select: { certifiedLocations: true },
+    });
+    if (!manager) {
+      return { id: { equals: '__none__' } };
+    }
+
+    return {
+      shift: {
+        locationId: {
+          in: manager.certifiedLocations,
+        },
+      },
+    };
   }
 }

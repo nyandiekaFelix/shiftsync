@@ -56,6 +56,7 @@ export interface Location {
 export interface Shift {
   id: string;
   locationId: string;
+  location?: Location;
   startTime: Date | string;
   endTime: Date | string;
   requiredSkill: Skill;

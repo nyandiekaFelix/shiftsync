@@ -39,3 +39,17 @@ export function getTimeZoneLabel(timeZone: string): string {
   }).format(new Date());
   return value.split(" ").pop() ?? timeZone;
 }
+
+export function toDateKeyInTimeZone(
+  value: Date | string,
+  timeZone: string,
+): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return formatter.format(date);
+}
